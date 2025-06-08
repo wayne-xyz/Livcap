@@ -7,9 +7,17 @@
 
 import SwiftUI
 import SwiftData
+import AVFoundation
 
 @main
 struct LivcapApp: App {
+    @StateObject private var permissionState=PermissionState.shared
+    
+    init() {
+        print("App is launching... initing")
+        
+    }
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Item.self,
@@ -25,8 +33,20 @@ struct LivcapApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+                
+                if permissionState.micPermissionGranted {
+                    ContentView()
+                } else {
+                    PermissionView()
+                }
+            
+
         }
         .modelContainer(sharedModelContainer)
+    }
+    
+    /// Returns `true` if microphone access is already authorized; otherwise `false`.
+    func checkMicrophoneAccess() -> Bool {
+        return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 }
