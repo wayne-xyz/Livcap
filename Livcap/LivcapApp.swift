@@ -11,7 +11,7 @@ import AVFoundation
 
 @main
 struct LivcapApp: App {
-    @StateObject private var permissionState=PermissionState.shared
+    @StateObject private var permissionState=PermissionManager.shared
     
     init() {
         print("App is launching... initing")
@@ -33,20 +33,9 @@ struct LivcapApp: App {
 
     var body: some Scene {
         WindowGroup {
-                
-                if permissionState.micPermissionGranted {
-                    ContentView()
-                } else {
-                    PermissionView()
-                }
-            
-
+                AppRouterView()
         }
         .modelContainer(sharedModelContainer)
     }
     
-    /// Returns `true` if microphone access is already authorized; otherwise `false`.
-    func checkMicrophoneAccess() -> Bool {
-        return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-    }
 }

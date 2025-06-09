@@ -29,9 +29,22 @@
 		CC20B36C2DEE2BC800DC19E3 /* LivcapUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LivcapUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		CC699FB82DF57B34003A8C03 /* Exceptions for "Livcap" folder in "Livcap" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = CC20B3512DEE2BC800DC19E3 /* Livcap */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		CC20B3542DEE2BC800DC19E3 /* Livcap */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CC699FB82DF57B34003A8C03 /* Exceptions for "Livcap" folder in "Livcap" target */,
+			);
 			path = Livcap;
 			sourceTree = "<group>";
 		};
@@ -402,7 +415,10 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Livcap/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Livcap requires microphone access to show live caption";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Livcap uses speech recognition to convert your voice into text.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -430,7 +446,10 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Livcap/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Livcap requires microphone access to show live caption";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Livcap uses speech recognition to convert your voice into text.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

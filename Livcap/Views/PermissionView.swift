@@ -2,7 +2,7 @@ import SwiftUI
 import AVFoundation
 
 struct PermissionView: View {
-    @ObservedObject var permissionState=PermissionState.shared
+    @ObservedObject var permissionManager=PermissionManager.shared
     
 
     @State private var isRequesting = false
@@ -11,12 +11,12 @@ struct PermissionView: View {
         VStack(spacing: 20) {
             // Status indicator
             HStack {
-                Image(systemName: permissionState.micPermissionGranted ? "mic.fill" : "mic.slash.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor( permissionState.micPermissionGranted ? .green : .red)
+                Image(systemName: permissionManager.micPermissionGranted ? "mic.fill" : "mic.slash.fill")
+                    .font(.system(size: 30))
+                    .foregroundColor( permissionManager.micPermissionGranted ? .green : .gray)
                 
-                Text(permissionState.micPermissionGranted ?  "Microphone Access Granted" : "Microphone Access Required")
-                    .font(.headline)
+                Text(permissionManager.micPermissionGranted ?  "Microphone Access Granted" : "Microphone Access Required")
+                    .font(.title)
             }
             .padding()
             
@@ -26,6 +26,9 @@ struct PermissionView: View {
                 .foregroundColor(.secondary)
                 .padding(.horizontal)
             
+            Button("Grant Required Permissions", action: {
+                
+            })
 
         }
         .padding()
@@ -33,7 +36,7 @@ struct PermissionView: View {
     }
     
     private var statusDescription: String {
-        if permissionState.micPermissionGranted {
+        if permissionManager.micPermissionGranted {
             return "Your microphone is ready to use. You can now start recording."
         } else {
             return "We need microphone access to enable voice recording features. Please grant permission in System Settings."
@@ -43,20 +46,16 @@ struct PermissionView: View {
 
     
     private func requestPermission() {
-        isRequesting = true
-        
-        // On macOS, we need to direct users to System Settings
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-            NSWorkspace.shared.open(url)
-        }
-        
-        // Check permission status after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            isRequesting = false
-        }
+        permissionManager.requestMicPermission()
     }
 }
 
-#Preview {
+#Preview ("Light Mode") {
     PermissionView()
-} 
+        .preferredColorScheme(.light)
+}
+
+#Preview ("Dark Mode") {
+    PermissionView()
+        .preferredColorScheme(.dark)
+}
