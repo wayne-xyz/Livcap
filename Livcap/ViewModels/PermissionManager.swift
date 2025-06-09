@@ -18,6 +18,7 @@ class PermissionManager: ObservableObject {
     init() {
         checkMicPermission()
         print("micPermissionGranted: \(micPermissionGranted)")
+        debugLog("micPermissionStatus:\(micPermissionStatus)")
     }
 
     func checkMicPermission() {

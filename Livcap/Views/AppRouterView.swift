@@ -18,9 +18,8 @@ struct AppRouterView: View {
         Group { // Or any container like VStack, ZStack
             if permissionState.micPermissionGranted {
                 let _ = print("Mic Permission Granted")
-                ContentView()
+                CaptionView()
             }else{
-                
                 PermissionView()
             }
         }

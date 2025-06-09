@@ -27,7 +27,7 @@ struct PermissionView: View {
                 .padding(.horizontal)
             
             Button("Grant Required Permissions", action: {
-                
+                permissionManager.requestMicPermission()
             })
 
         }
@@ -44,10 +44,6 @@ struct PermissionView: View {
     }
     
 
-    
-    private func requestPermission() {
-        permissionManager.requestMicPermission()
-    }
 }
 
 #Preview ("Light Mode") {

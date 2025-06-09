@@ -12,13 +12,27 @@ struct CaptionView: View {
     @StateObject private var caption = CaptionViewModel()
     
     var body: some View {
+        VStack{
+            Text(caption.statusText)
+                .frame(minWidth: 600, minHeight: 180)
+           
+        }
+        .onAppear {
+            setupCaption()
+        }
         
-        Text("Caption View")
-            .frame(minWidth: 600, minHeight: 180)
             
     }
+            
+    
+    func setupCaption() {
+        print("Start to captioning ")
+        caption.toggleRecording()
         
+    }
 }
+
+
 
 
 #Preview("Dark Mode") {
