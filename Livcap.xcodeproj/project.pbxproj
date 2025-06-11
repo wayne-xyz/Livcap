@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		CC699FFB2DFA3B57003A8C03 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = CC699FFA2DFA3B57003A8C03 /* MLX */; };
+		CC699FFD2DFA3B63003A8C03 /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = CC699FFC2DFA3B63003A8C03 /* MLXNN */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		CC20B3632DEE2BC800DC19E3 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +70,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CC699FFD2DFA3B63003A8C03 /* MLXNN in Frameworks */,
+				CC699FFB2DFA3B57003A8C03 /* MLX in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -91,6 +98,7 @@
 				CC20B3542DEE2BC800DC19E3 /* Livcap */,
 				CC20B3652DEE2BC800DC19E3 /* LivcapTests */,
 				CC20B36F2DEE2BC800DC19E3 /* LivcapUITests */,
+				CC699FF92DFA3B57003A8C03 /* Frameworks */,
 				CC20B3532DEE2BC800DC19E3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -103,6 +111,13 @@
 				CC20B36C2DEE2BC800DC19E3 /* LivcapUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		CC699FF92DFA3B57003A8C03 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -125,6 +140,8 @@
 			);
 			name = Livcap;
 			packageProductDependencies = (
+				CC699FFA2DFA3B57003A8C03 /* MLX */,
+				CC699FFC2DFA3B63003A8C03 /* MLXNN */,
 			);
 			productName = Livcap;
 			productReference = CC20B3522DEE2BC800DC19E3 /* Livcap.app */;
@@ -208,6 +225,9 @@
 			);
 			mainGroup = CC20B3492DEE2BC800DC19E3;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CC699FF82DFA2F80003A8C03 /* XCRemoteSwiftPackageReference "mlx-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC20B3532DEE2BC800DC19E3 /* Products */;
 			projectDirPath = "";
@@ -572,6 +592,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CC699FF82DFA2F80003A8C03 /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.25.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CC699FFA2DFA3B57003A8C03 /* MLX */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC699FF82DFA2F80003A8C03 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLX;
+		};
+		CC699FFC2DFA3B63003A8C03 /* MLXNN */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC699FF82DFA2F80003A8C03 /* XCRemoteSwiftPackageReference "mlx-swift" */;
+			productName = MLXNN;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = CC20B34A2DEE2BC800DC19E3 /* Project object */;
 }

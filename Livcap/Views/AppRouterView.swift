@@ -9,15 +9,15 @@ import SwiftUI
 import AVFoundation
 
 
-// 3. The Router View (Handles Conditional Display)
+
 struct AppRouterView: View {
     @StateObject private var permissionState=PermissionManager.shared
 
 
     var body: some View {
-        Group { // Or any container like VStack, ZStack
+        Group {
             if permissionState.micPermissionGranted {
-                let _ = print("Mic Permission Granted")
+//                ASRSimple()
                 CaptionView()
             }else{
                 PermissionView()
@@ -28,6 +28,11 @@ struct AppRouterView: View {
         .onAppear {
             //update the permission state
             permissionState.checkMicPermission()
+            debugLog("AppRouter Appear")
         }
     }
+}
+
+#Preview {
+    AppRouterView()
 }

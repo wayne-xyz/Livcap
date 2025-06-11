@@ -13,3 +13,8 @@ func debugLog(_ message: String, file: String = #file, function: String = #funct
     print("[\(fileName):\(line)] \(function) - \(message)")
     #endif
 }
+
+
+func isRunningInPreview() -> Bool {
+    ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+}

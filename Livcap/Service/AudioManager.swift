@@ -13,6 +13,12 @@ import Accelerate
 ///
 /// This class configures an audio engine to capture audio, converts it to a standard format (16kHz, mono, Float32),
 /// performs simple Voice Activity Detection (VAD), and publishes speech chunks as `Data` objects.
+///
+///
+///
+let CHUNK_BUFFER_SIZE=4096
+
+
 final class AudioManager: ObservableObject {
 
     // MARK: - Published Properties
@@ -76,7 +82,7 @@ final class AudioManager: ObservableObject {
 
         inputNode.installTap(
             onBus: 0,
-            bufferSize: 4096,
+            bufferSize: AVAudioFrameCount(CHUNK_BUFFER_SIZE),
             format: recordingFormat
         ) { [weak self] buffer, time in
             guard let self = self else { return }

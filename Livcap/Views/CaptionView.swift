@@ -26,9 +26,15 @@ struct CaptionView: View {
             
     
     func setupCaption() {
-        print("Start to captioning ")
-        caption.toggleRecording()
-        
+
+        if isRunningInPreview()==true{
+            debugLog("Caption off when Preview")
+            
+        }else{
+            debugLog("Caption toggle On")
+            caption.toggleRecording()
+        }
+               
     }
 }
 
