@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct ASRSimple: View {
+struct ASRSimpleView: View {
 
     @State private var STT_Result = ""
     
@@ -16,8 +16,7 @@ struct ASRSimple: View {
         VStack(spacing: 20) {
             Text("ASR Simple Result: \(STT_Result)")
              Button("Test MLX") {
-                let whisper = MLXWhisper()
-                whisper.static_MLX_fun()
+                
             }
         }
         .frame(width: 300, height: 400)
@@ -35,5 +34,5 @@ struct ASRSimple: View {
 
     
 #Preview {
-    ASRSimple()
+    ASRSimpleView()
 }

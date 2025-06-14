@@ -5,8 +5,13 @@
 //  Created by Rongwei Ji on 6/9/25.
 //
 
-// this is the arch of the whsiper model based on the mlx
-// 3 components for the whole model inference on mlx-whisper: 1. model arhc, 2model file loader, 3inference code
+/// MLXWhisper.swift
+///
+/// Implements the architecture of the Whisper model using MLX.
+/// This file includes the core model structure consisting of:
+/// 1. The model architecture (encoder and decoder)
+/// 2. Configuration loading through `ModelDimensions`
+/// 3. Inference logic for audio-to-text transcription
 
 //MLX Whisper.swift
 
@@ -14,18 +19,39 @@ import MLX
 import MLXNN
 import Foundation
 
-
+/// MLXWhisper encapsulates the full Whisper model architecture in MLX,
+/// combining the audio encoder and text decoder components for inference.
+///
+/// This class takes mel-spectrogram input and token input,
+/// processes them through the encoder and decoder, and outputs predicted logits.
+/// It also provides a placeholder method for model quantization.
 class MLXWhisper{
     
-    func static_MLX_fun(){
-        let a = MLXArray([1,2,3])
-        let b = MLXArray([4,5,6])
+    let encoder:AudioEncoder
+    let decoder:TextDecoder
+    
+    public init (dims:ModelDimensions ){
+        self.encoder=AudioEncoder(nMels: dims.nMels, nAudioCtx: dims.nAudioCtx, nAudioState: dims.nAudioState, nAudioHead: dims.nAudioHead, nAudioLayer: dims.nAudioLayer)
+        self.decoder=TextDecoder(nVocab: dims.nVocab, nTextCtx: dims.nTextCtx, nTextState: dims.nTextState, nTextHead: dims.nTextHead, nTextLayer: dims.nTextLayer)
         
-        let c = a + b
+    }
+    
+    /// Runs the full Whisper model: encodes audio and decodes text tokens.
+    ///
+    /// - Parameters:
+    ///   - x: Input mel-spectrogram (audio features).
+    ///   - tokens: Input token IDs for decoding.
+    /// - Returns: Predicted token logits.
+    public func callAsFunction(x: MLXArray, tokens:MLXArray) -> MLXArray {
+        let audioFeature=encoder(x)
+        let textlogits=decoder(x: tokens, xa: audioFeature)
+        return textlogits
         
-        let shape=c.shape
-        let dtype=c.dtype
-        print("cshapoe\(shape), cdtype\(dtype)")
+    }
+
+    //TODO: Update the implementation of the quantization
+    public func applyQuantization(config:[String:Any]){
+        print("Applying quantization:\(config)")
     }
 
 }
@@ -68,7 +94,7 @@ public class AudioEncoder:Module{
     public func callAsFunction(_ x:MLXArray) -> MLXArray {
         var x = gelu(conv1(x))
         x=gelu(conv2(x))
-        x = x.transposed(0,1)
+        x = x.transposed(0, 2, 1)//?(0,1) original code
         
         x = x + positionEmbedding[0..<x.shape[1]]
 
@@ -80,6 +106,48 @@ public class AudioEncoder:Module{
         return x
     }
     
+}
+
+
+
+/// Text decoder module that generates logits from token inputs and encoder features.
+/// Implements cross-attention and positional embeddings.
+public class TextDecoder:Module{
+    @ModuleInfo var tokenEmbedding:Embedding
+    @ModuleInfo var posEmbedding:Embedding
+    
+    @ModuleInfo var blocks:[ResidualAttentionBlock]
+    @ModuleInfo var ln: LayerNorm
+    
+    init(nVocab:Int, nTextCtx:Int,nTextState:Int, nTextHead:Int,nTextLayer:Int) {
+        self.tokenEmbedding=Embedding(embeddingCount: nVocab, dimensions: nTextState)
+        self.posEmbedding=Embedding(embeddingCount: nTextCtx, dimensions: nTextState)
+        
+        self.blocks=(0..<nTextLayer).map{_ in
+                ResidualAttentionBlock(nState: nTextState, nHead: nTextHead, hasCrossAttn: true)
+        }
+        
+        self.ln=LayerNorm(dimensions: nTextState)
+        
+    }
+    
+    /// Runs the text decoder with token and encoder inputs.
+    /// - Parameters:
+    ///   - x: Input token IDs.
+    ///   - xa: Encoder output features (for cross-attention).
+    /// - Returns: Predicted token logits.
+    public func callAsFunction(x:MLXArray,xa:MLXArray)->MLXArray {
+        let positions=MLXArray(0..<x.shape[1])
+        var x=tokenEmbedding(x)+posEmbedding(positions)
+        
+        for block in blocks {
+            x=block(x,xa: xa)
+        }
+        
+        x=ln(x)
+        let logits=x.matmul(tokenEmbedding.weight.T)
+        return logits
+    }
 }
 
 
@@ -165,7 +233,7 @@ public class MultiHeadAttention:Module {
         let k=key(kv ?? x)
         let v=value(kv ?? x)
         
-        var (output, _) = MultiHeadAttention.applyAttention(
+        let (output, _) = MultiHeadAttention.applyAttention(
             queries: q, keys: k, values: v, nHead: nHead, mask: mask)
 
         return out(output)
@@ -221,6 +289,20 @@ public class MultiHeadAttention:Module {
     
 }
 
+
+/// A struct to hold the model dimensions, deserialized from `config.json`.
+public struct ModelDimensions {
+    let nMels: Int
+    let nVocab: Int
+    let nAudioCtx: Int
+    let nAudioState: Int
+    let nAudioHead: Int
+    let nAudioLayer: Int
+    let nTextCtx: Int
+    let nTextState: Int
+    let nTextHead: Int
+    let nTextLayer: Int
+}
 
 
 /// Generates sinusoidal positional embeddings, a fixed (non-learned) component.
