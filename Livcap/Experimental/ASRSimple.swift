@@ -16,7 +16,7 @@ struct ASRSimpleView: View {
         VStack(spacing: 20) {
             Text("ASR Simple Result: \(STT_Result)")
              Button("Test MLX") {
-                
+                loadModel()
             }
         }
         .frame(width: 300, height: 400)
@@ -25,7 +25,14 @@ struct ASRSimpleView: View {
         }
     }
     
-    
+    private func loadModel(){
+        do{
+            var model=try WhisperLoader.load(printWeight: true)
+            print("Model loaded successfully")
+        }catch{
+            print("Error loading model: \(error)")
+        }
+    }
     private func transcribe(){
         
     }

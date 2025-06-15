@@ -25,7 +25,7 @@ import Foundation
 /// This class takes mel-spectrogram input and token input,
 /// processes them through the encoder and decoder, and outputs predicted logits.
 /// It also provides a placeholder method for model quantization.
-class MLXWhisper{
+public class MLXWhisper:Module{
     
     let encoder:AudioEncoder
     let decoder:TextDecoder
@@ -50,8 +50,24 @@ class MLXWhisper{
     }
 
     //TODO: Update the implementation of the quantization
-    public func applyQuantization(config:[String:Any]){
-        print("Applying quantization:\(config)")
+    public func applyQuantization(config:[String:Any], weights: [String: MLXArray]){
+        // The `class_predicate` from the Python code is a closure that determines
+        // whether a specific layer should be quantized.
+        var classPredicate = { (path: String, module: Module) -> Bool in
+            // Check if the module is a type that can be quantized.
+            let isQuantizableType = module is Linear || module is Embedding
+            
+            // Check if the scaling factors for this specific layer exist in the loaded weights.
+            // This ensures we only quantize layers that were prepared for it.
+            let hasScales = weights["\(path).scales"] != nil
+            
+            return isQuantizableType && hasScales
+        }
+        
+        // `nn.quantize` is a placeholder for the actual MLXNN Swift API.
+        // You would pass the configuration and the predicate to it.
+        // e.g., nn.quantize(self, groupSize: config["group_size"], bits: config["bits"], predicate: classPredicate)
+        print("Applying quantization with predicate...")
     }
 
 }
