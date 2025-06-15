@@ -130,14 +130,14 @@ public class AudioEncoder:Module{
 /// Implements cross-attention and positional embeddings.
 public class TextDecoder:Module{
     @ModuleInfo var tokenEmbedding:Embedding
-    @ModuleInfo var posEmbedding:Embedding
+    var posEmbedding:MLXArray
     
     @ModuleInfo var blocks:[ResidualAttentionBlock]
     @ModuleInfo var ln: LayerNorm
     
     init(nVocab:Int, nTextCtx:Int,nTextState:Int, nTextHead:Int,nTextLayer:Int) {
         self.tokenEmbedding=Embedding(embeddingCount: nVocab, dimensions: nTextState)
-        self.posEmbedding=Embedding(embeddingCount: nTextCtx, dimensions: nTextState)
+        self.posEmbedding=MLXArray.zeros([nTextCtx,nTextState])
         
         self.blocks=(0..<nTextLayer).map{_ in
                 ResidualAttentionBlock(nState: nTextState, nHead: nTextHead, hasCrossAttn: true)
@@ -153,8 +153,8 @@ public class TextDecoder:Module{
     ///   - xa: Encoder output features (for cross-attention).
     /// - Returns: Predicted token logits.
     public func callAsFunction(x:MLXArray,xa:MLXArray)->MLXArray {
-        let positions=MLXArray(0..<x.shape[1])
-        var x=tokenEmbedding(x)+posEmbedding(positions)
+        
+        var x=tokenEmbedding(x)+posEmbedding[0..<x.shape[1]]
         
         for block in blocks {
             x=block(x,xa: xa)

@@ -10,17 +10,19 @@ import MLX
 import MLXNN
 
 let WHISPER_MODEL_FOLDER="WhisperModelTiny"
+let CONGIG_FILE="config.json"
+let WEIGHT_FILE="weights.safetensors"
 
 
 public struct WhisperLoader{
-    public static func load(printWeight:Bool=false) throws -> MLXWhisper{
+    public static func load(printLog:Bool=false) throws -> MLXWhisper{
         
-        guard let modelPath=Bundle.main.path(forResource: WHISPER_MODEL_FOLDER, ofType: nil) else {
-            throw NSError(domain: "WhisperLoader", code: 1, userInfo: [NSLocalizedDescriptionKey:"Model path not found"])
+        guard let configPath = Bundle.main.path(forResource: CONGIG_FILE, ofType: nil) else {
+            throw NSError(domain: "WhisperLoader", code: 1, userInfo: [NSLocalizedDescriptionKey:"Config file not found"])
         }
         
-        let configPath=(modelPath as NSString).appendingPathComponent("config.json")
-        guard let configData=try? Data(contentsOf: URL(fileURLWithPath: configPath)), let config=try? JSONSerialization.jsonObject(with: configData) as? [String:Any] else {
+        guard let configData = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
+              let config = try? JSONSerialization.jsonObject(with: configData) as? [String:Any] else {
             throw NSError(domain: "WhisperLoader", code: 1, userInfo: [NSLocalizedDescriptionKey:"Failed to load config.json"])
         }
         
@@ -40,17 +42,23 @@ public struct WhisperLoader{
         
         let model=MLXWhisper(dims: dimensions)
         
-        let weightPath=(modelPath as NSString).appendingPathComponent("weights.npz")
-        
-        guard let flatweight = try? MLX.loadArrays(url: URL(fileURLWithPath:weightPath)) else {
+        guard let weightPath = Bundle.main.path(forResource: WEIGHT_FILE, ofType: nil) else {
             throw NSError(domain: "WhisperLoader", code: 1, userInfo: [NSLocalizedDescriptionKey:"Failed to load weight.npz"])
+        }
+        
+        guard let flatweight = try? loadArrays(url: URL(fileURLWithPath: weightPath)) else {
+            throw NSError(domain: "WhisperLoader", code: 1, userInfo: [NSLocalizedDescriptionKey:"Failed to convert weight.npz"])
+        }
+        
+        if printLog{
+            debugWeight(flatweight: flatweight)
         }
         
         let unflattened=ModuleParameters.unflattened(flatweight)
         try model.update(parameters: unflattened,verify: [.all])
         
         eval(model)
-        if printWeight{
+        if printLog{
             // Print NPZ weight information
             print("📊 NPZ Weight Information:")
             print("   • Total weight arrays: \(flatweight.count)")
@@ -72,6 +80,29 @@ public struct WhisperLoader{
         return model
     
         
+    }
+    
+}
+
+
+
+public func debugWeight(flatweight:[String:MLXArray]){
+    // Add this debug section to print all keys
+    print("🔑 Available weight keys:")
+    for key in flatweight.keys.sorted() {
+        print("   - \(key)")
+    }
+
+    // Print detailed information about each weight
+    print("\n📊 Detailed weight information:")
+    for (key, array) in flatweight.sorted(by: { $0.key < $1.key }) {
+        let shape = array.shape.map(String.init).joined(separator: "×")
+        let size = array.size
+        let dtype = array.dtype
+        print("   • \(key):")
+        print("     - Shape: [\(shape)]")
+        print("     - Size: \(size) parameters")
+        print("     - Data type: \(dtype)")
     }
     
 }

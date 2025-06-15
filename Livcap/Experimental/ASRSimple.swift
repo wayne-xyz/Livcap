@@ -27,7 +27,7 @@ struct ASRSimpleView: View {
     
     private func loadModel(){
         do{
-            var model=try WhisperLoader.load(printWeight: true)
+            var model=try WhisperLoader.load(printLog: true)
             print("Model loaded successfully")
         }catch{
             print("Error loading model: \(error)")
