@@ -7,11 +7,13 @@
 
 /// MLXWhisper.swift
 ///
-/// Implements the architecture of the Whisper model using MLX.
-/// This file includes the core model structure consisting of:
-/// 1. The model architecture (encoder and decoder)
-/// 2. Configuration loading through `ModelDimensions`
-/// 3. Inference logic for audio-to-text transcription
+/// Implements the Whisper model architecture using MLX framework.
+/// This implementation includes:
+/// 1. Audio encoder for processing mel-spectrograms
+/// 2. Text decoder for generating transcriptions
+/// 3. Multi-head attention mechanisms
+/// 4. Residual attention blocks
+/// 5. Model configuration and quantization support
 
 //MLX Whisper.swift
 
@@ -35,12 +37,11 @@ struct ModuleKeys{
 }
 
 
-/// MLXWhisper encapsulates the full Whisper model architecture in MLX,
-/// combining the audio encoder and text decoder components for inference.
+/// MLXWhisper implements the complete Whisper model architecture using MLX.
+/// It combines an audio encoder and text decoder to perform speech-to-text transcription.
 ///
-/// This class takes mel-spectrogram input and token input,
-/// processes them through the encoder and decoder, and outputs predicted logits.
-/// It also provides a placeholder method for model quantization.
+/// The model processes audio input through the encoder to extract features,
+/// then uses these features in the decoder to generate text transcriptions.
 public class MLXWhisper:Module{
     
     @ModuleInfo var encoder:AudioEncoder
@@ -52,20 +53,24 @@ public class MLXWhisper:Module{
         
     }
     
-    /// Runs the full Whisper model: encodes audio and decodes text tokens.
+    /// Processes audio input and generates text transcriptions.
     ///
     /// - Parameters:
-    ///   - x: Input mel-spectrogram (audio features).
-    ///   - tokens: Input token IDs for decoding.
-    /// - Returns: Predicted token logits.
-    public func callAsFunction(x: MLXArray, tokens:MLXArray) -> MLXArray {
+    ///   - x: Input mel-spectrogram tensor of shape [batch_size, n_mels, time_steps]
+    ///   - tokens: Input token IDs tensor of shape [batch_size, sequence_length]
+    /// - Returns: Logits tensor of shape [batch_size, sequence_length, vocab_size]
+     public func callAsFunction(x: MLXArray, tokens:MLXArray) -> MLXArray {
         let audioFeature=encoder(x)
         let (textlogits,_)=decoder(x: tokens, xa: audioFeature)
         return textlogits
         
     }
 
-    //TODO: Update the implementation of the quantization
+    /// Applies quantization to the model weights to reduce memory usage and improve inference speed.
+    ///
+    /// - Parameters:
+    ///   - config: Dictionary containing quantization parameters (group_size, bits)
+    ///   - weights: Dictionary of model weights with their corresponding scaling factors
     public func applyQuantization(config:[String:Any], weights: [String: MLXArray]){
         // The `class_predicate` from the Python code is a closure that determines
         // whether a specific layer should be quantized.
@@ -90,17 +95,13 @@ public class MLXWhisper:Module{
 
 
 
-/// Audio encoder module for processing mel-spectrogram inputs.
+/// AudioEncoder processes mel-spectrogram inputs through convolutional layers and transformer blocks.
 ///
-/// Applies two Conv1D layers, adds sinusoidal positional embeddings,
-/// passes through a stack of residual attention blocks, and applies layer normalization.
-///
-/// - Parameters:
-///   - nMels: Number of input mel-frequency bins.
-///   - nAudioCtx: Number of time steps for the positional embedding.
-///   - nAudioState: Hidden state size for the model.
-///   - nAudioHead: Number of attention heads in each block.
-///   - nAudioLayer: Number of residual attention blocks.
+/// The encoder consists of:
+/// 1. Two convolutional layers for initial feature extraction
+/// 2. Sinusoidal positional embeddings
+/// 3. A stack of residual attention blocks
+/// 4. Final layer normalization
 public class AudioEncoder:Module{
     @ModuleInfo var conv1:Conv1d
     @ModuleInfo var conv2:Conv1d
@@ -123,6 +124,10 @@ public class AudioEncoder:Module{
         self.positionEmbedding = sinusoids(nAudioCtx, nAudioState)
     }
     
+    /// Processes mel-spectrogram input through the encoder.
+    ///
+    /// - Parameter x: Input mel-spectrogram tensor of shape [batch_size, n_mels, time_steps]
+    /// - Returns: Encoded features tensor of shape [batch_size, time_steps, n_audio_state]
     public func callAsFunction(_ x:MLXArray) -> MLXArray {
         var x = gelu(conv1(x))
         x=gelu(conv2(x))
@@ -142,8 +147,13 @@ public class AudioEncoder:Module{
 
 
 
-/// Text decoder module that generates logits from token inputs and encoder features.
-/// Implements cross-attention and positional embeddings.
+/// TextDecoder generates text transcriptions using the encoded audio features.
+///
+/// The decoder implements:
+/// 1. Token and positional embeddings
+/// 2. Cross-attention with encoder features
+/// 3. Self-attention blocks
+/// 4. Final layer normalization and projection
 public class TextDecoder:Module{
     @ModuleInfo(key: ModuleKeys.tokenEmbedding) var tokenEmbedding: Embedding
     @ParameterInfo(key: ModuleKeys.positionalEmbedding) var positionalEmbedding:MLXArray
@@ -163,11 +173,14 @@ public class TextDecoder:Module{
         
     }
     
-    /// Runs the text decoder with token and encoder inputs.
+    /// Generates text transcriptions from input tokens and encoder features.
+    ///
     /// - Parameters:
-    ///   - x: Input token IDs.
-    ///   - xa: Encoder output features (for cross-attention).
-    /// - Returns: Predicted token logits.
+    ///   - x: Input token IDs tensor of shape [batch_size, sequence_length]
+    ///   - xa: Encoder features tensor of shape [batch_size, audio_steps, n_audio_state]
+    /// - Returns: Tuple containing:
+    ///   - Logits tensor of shape [batch_size, sequence_length, vocab_size]
+    ///   - Cross-attention scores for visualization/analysis
     public func callAsFunction(x:MLXArray,xa:MLXArray)->(MLXArray, [MLXArray?]) {
         
         var x=tokenEmbedding(x)+positionalEmbedding[0..<x.shape[1]]
@@ -187,9 +200,13 @@ public class TextDecoder:Module{
 
 
 
-/// A residual block combining self-attention, optional cross-attention,
-/// and a feedforward MLP with skip connections and layer normalization.
-/// Used in transformer-based architectures.
+/// ResidualAttentionBlock implements a transformer block with optional cross-attention.
+///
+/// Each block contains:
+/// 1. Self-attention with layer normalization
+/// 2. Optional cross-attention for encoder-decoder interaction
+/// 3. Feed-forward network with GELU activation
+/// 4. Residual connections throughout
 public class ResidualAttentionBlock:Module{
     @ModuleInfo var attn:MultiHeadAttention
     @ModuleInfo(key: ModuleKeys.attnLn) var attnLn:LayerNorm
@@ -216,9 +233,15 @@ public class ResidualAttentionBlock:Module{
         self._mlpLn.wrappedValue=LayerNorm(dimensions: nState)
     }
     
-    /// - Parameter x: The input sequence.
-    /// - Parameter xa: The context sequence from the encoder (only for cross-attention).
-    /// - Parameter mask: Optional mask to prevent attention to future tokens.
+    /// Processes input through the attention block.
+    ///
+    /// - Parameters:
+    ///   - x: Input tensor of shape [batch_size, sequence_length, hidden_size]
+    ///   - xa: Optional encoder features for cross-attention
+    ///   - mask: Optional attention mask
+    /// - Returns: Tuple containing:
+    ///   - Processed output tensor
+    ///   - Optional cross-attention scores
     public func callAsFunction(_ x:MLXArray,xa:MLXArray?=nil, mask:MLXArray?=nil) -> (MLXArray,MLXArray?){
         var x=x
         var (y,_) = attn(attnLn(x),mask:mask)
@@ -239,17 +262,13 @@ public class ResidualAttentionBlock:Module{
 
 
 
-/// A Multi-Head Attention module that implements the attention mechanism used in transformer architectures.
-/// This class performs scaled dot-product attention across multiple heads in parallel.
+/// MultiHeadAttention implements the scaled dot-product attention mechanism.
 ///
-/// The attention mechanism allows the model to focus on different parts of the input sequence
-/// simultaneously through multiple attention heads. Each head can learn different aspects of
-/// the relationships between elements in the sequence.
-///
-/// Key components:
-/// - Query, Key, and Value linear transformations
-/// - Multi-head attention computation
-/// - Scaled dot-product attention with optional masking
+/// Features:
+/// 1. Multi-head parallel attention computation
+/// 2. Scaled dot-product attention
+/// 3. Optional attention masking
+/// 4. Linear projections for queries, keys, and values
 public class MultiHeadAttention:Module {
     @ModuleInfo var query:Linear
     @ModuleInfo var key:Linear
@@ -266,12 +285,21 @@ public class MultiHeadAttention:Module {
         self.out=Linear(nState,nState)
     }
     
+    /// Computes attention between input sequences.
+    ///
+    /// - Parameters:
+    ///   - x: Input tensor for self-attention or query tensor for cross-attention
+    ///   - kv: Optional key-value tensor for cross-attention
+    ///   - mask: Optional attention mask
+    /// - Returns: Tuple containing:
+    ///   - Attention output tensor
+    ///   - Attention scores for analysis
     public func callAsFunction(_ x:MLXArray, kv:MLXArray?=nil, mask:MLXArray?=nil) -> (MLXArray,MLXArray) {
         let q=query(x)
         let k=key(kv ?? x)
         let v=value(kv ?? x)
         
-        let (output, qk) = MultiHeadAttention.applyAttention(
+        let (output, qk) = MultiHeadAttention.applyQKVAttention(
             queries: q, keys: k, values: v, nHead: nHead, mask: mask)
 
         return (out(output),qk)
@@ -279,56 +307,65 @@ public class MultiHeadAttention:Module {
     
     
     
-    /**
-    Performs scaled dot-product attention with multiple heads.
-
-    Reshapes inputs for multi-head computation, calculates attention
-    scores via scaled dot-product, applies optional mask, then uses
-    softmax to weight values.
-
-    - Parameters:
-      - queries: (B, L, D) query tensor
-      - keys: (B, S, D) key tensor
-      - values: (B, S, D) value tensor
-      - n_head: number of attention heads
-      - mask: optional mask (broadcastable to score shape)
-
-    - Returns:
-      - output: (B, L, D) attention output
-      - scores: (B, n_head, L, S) attention weights
-    */
-    public static func applyAttention(
+    /// Applies scaled dot-product attention across multiple heads.
+    ///
+    /// - Parameters:
+    ///   - queries: Query tensor of shape [batch_size, query_length, hidden_size]
+    ///   - keys: Key tensor of shape [batch_size, key_length, hidden_size]
+    ///   - values: Value tensor of shape [batch_size, value_length, hidden_size]
+    ///   - nHead: Number of attention heads
+    ///   - mask: Optional attention mask
+    /// - Returns: Tuple containing:
+    ///   - Attention output tensor
+    ///   - Attention scores tensor
+    public static func applyQKVAttention(
         queries: MLXArray, keys: MLXArray, values: MLXArray, nHead: Int, mask: MLXArray? = nil
     ) -> (MLXArray, MLXArray) {
         
-        // batch size(number of sequence in para), length of sequence, hidden dimension
+        // batch size, length of sequence, hidden dimension
         let (B, L, D) = (queries.shape[0], queries.shape[1], queries.shape[2])
         let (S) = (keys.shape[1])
+        let headDim = D / nHead
         
-        // 1. Reshape and transpose for multi-head computation
-        let queries = queries.reshaped(B, L, nHead, D / nHead).transposed(0, 2, 1, 3)
-        let keys = keys.reshaped(B, S, nHead, D / nHead).transposed(0, 2, 3, 1)
-        let values = values.reshaped(B, S, nHead, D / nHead).transposed(0, 2, 1, 3)
+        // 1. Calculate scaling factor (aligned with python version: (n_state // self.n_head) ** -0.25)
+        let scale = Float(pow(Double(headDim), -0.25))
+
+        // 2. Reshape, transpose, and apply scale for multi-head computation
+        // Scale is applied to Q and K before matmul, just like the python version
+        let queries = queries.reshaped(B, L, nHead, headDim).transposed(0, 2, 1, 3) * scale
+        let keys = keys.reshaped(B, S, nHead, headDim).transposed(0, 2, 3, 1) * scale
+        let values = values.reshaped(B, S, nHead, headDim).transposed(0, 2, 1, 3)
         
-        // 2. Scaled dot-product attention
-        let scale = Float(1.0 / sqrt(Double(D / nHead)))
-        var scores = (queries * scale).matmul(keys)
+        // 3. Scaled dot-product attention (qk)
+        // No additional scaling needed here as it was applied above
+        var qk = queries.matmul(keys)
+        
         if let mask {
-            scores = scores + mask.asType(scores.dtype)
+            // Apply a slice of the mask, mirroring python's mask[:n_ctx, :n_ctx]
+            // Assuming L (query length) and S (key length) correspond to n_ctx
+            qk = qk + mask[0..<L, 0..<S].asType(qk.dtype)
         }
         
-        scores = softmax(scores, axis: -1)
+        // 4. Apply softmax to get attention weights
+        // Note: Python's `precise=True` is not available in MLX Swift's softmax
+        let scores = softmax(qk, axis: -1)
         
-        // 3. Apply attention scores to values
+        // 5. Apply attention weights to values
         let output = scores.matmul(values).transposed(0, 2, 1, 3).reshaped(B, L, D)
         
-        return (output, scores)
+        // 6. Return output and pre-softmax scores (qk), matching the python version
+        return (output, qk)
     }
     
 }
 
 
-/// A struct to hold the model dimensions, deserialized from `config.json`.
+/// ModelDimensions defines the architectural parameters of the Whisper model.
+///
+/// These dimensions are loaded from the model's configuration file and determine:
+/// - Audio processing parameters (mel bins, context size)
+/// - Model capacity (state sizes, number of layers)
+/// - Attention configuration (number of heads)
 public struct ModelDimensions {
     let nMels: Int
     let nVocab: Int
@@ -343,7 +380,13 @@ public struct ModelDimensions {
 }
 
 
-/// Generates sinusoidal positional embeddings, a fixed (non-learned) component.
+/// Generates sinusoidal positional embeddings for sequence position encoding.
+///
+/// - Parameters:
+///   - length: Sequence length
+///   - channels: Embedding dimension
+///   - max_timescale: Maximum time scale for frequency generation
+/// - Returns: Positional embeddings tensor of shape [length, channels]
 private func sinusoids(_ length: Int, _ channels: Int, max_timescale: Float = 10000.0) -> MLXArray {
     let log_timescale_increment = log(max_timescale) / Float(channels / 2 - 1)
     let inv_timescales = exp(MLXArray(0..<channels/2) * -log_timescale_increment)
