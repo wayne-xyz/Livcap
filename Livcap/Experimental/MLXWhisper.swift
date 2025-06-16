@@ -19,6 +19,22 @@ import MLX
 import MLXNN
 import Foundation
 
+
+// String resouce for the keys values
+struct ModuleKeys{
+
+    static let tokenEmbedding="token_embedding"
+    static let positionalEmbedding="positional_embedding"
+    static let lnPost="ln_post"
+    static let attnLn="attn_ln"
+    static let crossAttn="cross_attn"
+    static let crossAttnLn="cross_attn_ln"
+    static let mlpln="mlp_ln"
+    static let mlp1="mlp1" //?
+    static let mlp2="mlp2" //?
+}
+
+
 /// MLXWhisper encapsulates the full Whisper model architecture in MLX,
 /// combining the audio encoder and text decoder components for inference.
 ///
@@ -27,8 +43,8 @@ import Foundation
 /// It also provides a placeholder method for model quantization.
 public class MLXWhisper:Module{
     
-    let encoder:AudioEncoder
-    let decoder:TextDecoder
+    @ModuleInfo var encoder:AudioEncoder
+    @ModuleInfo var decoder:TextDecoder
     
     public init (dims:ModelDimensions ){
         self.encoder=AudioEncoder(nMels: dims.nMels, nAudioCtx: dims.nAudioCtx, nAudioState: dims.nAudioState, nAudioHead: dims.nAudioHead, nAudioLayer: dims.nAudioLayer)
@@ -44,7 +60,7 @@ public class MLXWhisper:Module{
     /// - Returns: Predicted token logits.
     public func callAsFunction(x: MLXArray, tokens:MLXArray) -> MLXArray {
         let audioFeature=encoder(x)
-        let textlogits=decoder(x: tokens, xa: audioFeature)
+        let (textlogits,_)=decoder(x: tokens, xa: audioFeature)
         return textlogits
         
     }
@@ -92,7 +108,7 @@ public class AudioEncoder:Module{
     var positionEmbedding:MLXArray
     
     @ModuleInfo var blocks:[ResidualAttentionBlock]
-    @ModuleInfo var lnPost: LayerNorm
+    @ModuleInfo(key: ModuleKeys.lnPost) var lnPost: LayerNorm
     
     public init(nMels:Int, nAudioCtx:Int, nAudioState:Int,nAudioHead:Int, nAudioLayer:Int) {
         self.conv1=Conv1d(inputChannels:  nMels, outputChannels: nAudioState, kernelSize: 3,padding: 1)
@@ -102,7 +118,7 @@ public class AudioEncoder:Module{
             ResidualAttentionBlock(nState: nAudioState, nHead: nAudioHead)
         }
         
-        self.lnPost=LayerNorm(dimensions: nAudioState)
+        self._lnPost.wrappedValue=LayerNorm(dimensions: nAudioState)
         
         self.positionEmbedding = sinusoids(nAudioCtx, nAudioState)
     }
@@ -115,7 +131,7 @@ public class AudioEncoder:Module{
         x = x + positionEmbedding[0..<x.shape[1]]
 
         for block in blocks {
-            x = block(x)
+            (x,_) = block(x)
         }
         
         x=lnPost(x)
@@ -129,15 +145,15 @@ public class AudioEncoder:Module{
 /// Text decoder module that generates logits from token inputs and encoder features.
 /// Implements cross-attention and positional embeddings.
 public class TextDecoder:Module{
-    @ModuleInfo var tokenEmbedding:Embedding
-    var posEmbedding:MLXArray
+    @ModuleInfo(key: ModuleKeys.tokenEmbedding) var tokenEmbedding: Embedding
+    @ParameterInfo(key: ModuleKeys.positionalEmbedding) var positionalEmbedding:MLXArray
     
     @ModuleInfo var blocks:[ResidualAttentionBlock]
     @ModuleInfo var ln: LayerNorm
     
     init(nVocab:Int, nTextCtx:Int,nTextState:Int, nTextHead:Int,nTextLayer:Int) {
-        self.tokenEmbedding=Embedding(embeddingCount: nVocab, dimensions: nTextState)
-        self.posEmbedding=MLXArray.zeros([nTextCtx,nTextState])
+        self._tokenEmbedding.wrappedValue=Embedding(embeddingCount: nVocab, dimensions: nTextState)
+        self._positionalEmbedding.wrappedValue=MLXArray.zeros([nTextCtx,nTextState])
         
         self.blocks=(0..<nTextLayer).map{_ in
                 ResidualAttentionBlock(nState: nTextState, nHead: nTextHead, hasCrossAttn: true)
@@ -152,17 +168,20 @@ public class TextDecoder:Module{
     ///   - x: Input token IDs.
     ///   - xa: Encoder output features (for cross-attention).
     /// - Returns: Predicted token logits.
-    public func callAsFunction(x:MLXArray,xa:MLXArray)->MLXArray {
+    public func callAsFunction(x:MLXArray,xa:MLXArray)->(MLXArray, [MLXArray?]) {
         
-        var x=tokenEmbedding(x)+posEmbedding[0..<x.shape[1]]
+        var x=tokenEmbedding(x)+positionalEmbedding[0..<x.shape[1]]
         
+        var crossQKs=[MLXArray?]()
         for block in blocks {
-            x=block(x,xa: xa)
+            let (newX,crossQk)=block(x,xa: xa)
+            x = newX
+            crossQKs.append(crossQk)
         }
         
         x=ln(x)
         let logits=x.matmul(tokenEmbedding.weight.T)
-        return logits
+        return (logits,crossQKs)
     }
 }
 
@@ -173,43 +192,46 @@ public class TextDecoder:Module{
 /// Used in transformer-based architectures.
 public class ResidualAttentionBlock:Module{
     @ModuleInfo var attn:MultiHeadAttention
-    @ModuleInfo var attnLn:LayerNorm
+    @ModuleInfo(key: ModuleKeys.attnLn) var attnLn:LayerNorm
+    @ModuleInfo(key: ModuleKeys.crossAttn) var crossAttn:MultiHeadAttention?
+    @ModuleInfo(key: ModuleKeys.crossAttnLn) var crossAttnLn:LayerNorm?
     
-    @ModuleInfo var crossAttn:MultiHeadAttention?
-    @ModuleInfo var crossAttnLn:LayerNorm?
-    
-    @ModuleInfo var mlp:[any UnaryLayer]
-    @ModuleInfo var mlpLn:LayerNorm
+    @ModuleInfo var mlp1:Linear
+    @ModuleInfo var mlp2:Linear
+    @ModuleInfo(key: ModuleKeys.mlpln) var mlpLn:LayerNorm
     
     public init(nState: Int,nHead:Int, hasCrossAttn:Bool=false){
-        self.attnLn=LayerNorm(dimensions: nState)
+        self._attnLn.wrappedValue=LayerNorm(dimensions: nState)
         self.attn=MultiHeadAttention(nState: nState, nHead: nHead)
         
         if hasCrossAttn{
-            self.crossAttnLn=LayerNorm(dimensions: nState)
-            self.crossAttn=MultiHeadAttention(nState: nState, nHead: nHead)
+            self._crossAttnLn.wrappedValue=LayerNorm(dimensions: nState)
+            self._crossAttn.wrappedValue=MultiHeadAttention(nState: nState, nHead: nHead)
         }
         
-        self.mlpLn=LayerNorm(dimensions: nState)
-        self.mlp=[
-            Linear(nState,nState*4),
-            GELU(),
-            Linear(nState*4,nState)
-        ]
+        
+        let nMlp=nState*4
+        self.mlp1=Linear(inputDimensions: nState, outputDimensions: nMlp)
+        self.mlp2=Linear(inputDimensions: nMlp, outputDimensions: nState)
+        self._mlpLn.wrappedValue=LayerNorm(dimensions: nState)
     }
     
     /// - Parameter x: The input sequence.
     /// - Parameter xa: The context sequence from the encoder (only for cross-attention).
     /// - Parameter mask: Optional mask to prevent attention to future tokens.
-    public func callAsFunction(_ x:MLXArray,xa:MLXArray?=nil, mask:MLXArray?=nil) -> MLXArray{
-        var x = x + attn(attnLn(x),mask:mask)
-        
+    public func callAsFunction(_ x:MLXArray,xa:MLXArray?=nil, mask:MLXArray?=nil) -> (MLXArray,MLXArray?){
+        var x=x
+        var (y,_) = attn(attnLn(x),mask:mask)
+        x=x+y
+        var crossQK:MLXArray?
         if let crossAttn, let crossAttnLn, let xa{
-            x = x + crossAttn(crossAttnLn(x),kv:xa)
+            let (y,qk) = crossAttn(crossAttnLn(x),kv:xa)
+            x = x + y
+            crossQK = qk
         }
-        
-        x = x + mlp.reduce(mlpLn(x)){ $1($0) }
-        return x
+        x = x + mlp2(gelu(mlp1(mlpLn(x))))
+
+        return (x, crossQK)
     }
     
 }
@@ -244,15 +266,15 @@ public class MultiHeadAttention:Module {
         self.out=Linear(nState,nState)
     }
     
-    public func callAsFunction(_ x:MLXArray, kv:MLXArray?=nil, mask:MLXArray?=nil) -> MLXArray {
+    public func callAsFunction(_ x:MLXArray, kv:MLXArray?=nil, mask:MLXArray?=nil) -> (MLXArray,MLXArray) {
         let q=query(x)
         let k=key(kv ?? x)
         let v=value(kv ?? x)
         
-        let (output, _) = MultiHeadAttention.applyAttention(
+        let (output, qk) = MultiHeadAttention.applyAttention(
             queries: q, keys: k, values: v, nHead: nHead, mask: mask)
 
-        return out(output)
+        return (out(output),qk)
     }
     
     
