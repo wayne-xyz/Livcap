@@ -1,0 +1,7 @@
+.DS_Store
+
+# Whisper model files
+Livcap/CoreWhisperCpp/ggml-base.en.bin
+Livcap/CoreWhisperCpp/ggml-tiny.en.bin
+Livcap/CoreWhisperCpp/ggml-base.en-encoder.mlmodelc
+Livcap/CoreWhisperCpp/ggml-tiny.en-encoder.mlmodelc

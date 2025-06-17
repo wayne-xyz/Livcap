@@ -28,6 +28,19 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		CC8472352E00FDC0007B06E4 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		CC20B3522DEE2BC800DC19E3 /* Livcap.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Livcap.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC20B3622DEE2BC800DC19E3 /* LivcapTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LivcapTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -44,11 +57,25 @@
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		CC8472362E00FDC0007B06E4 /* Exceptions for "Livcap" folder in "Embed Frameworks" phase from "Livcap" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			attributesByRelativePath = {
+				CoreWhisperCpp/whisper.xcframework = (CodeSignOnCopy, RemoveHeadersOnCopy, );
+			};
+			buildPhase = CC8472352E00FDC0007B06E4 /* Embed Frameworks */;
+			membershipExceptions = (
+				CoreWhisperCpp/whisper.xcframework,
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		CC20B3542DEE2BC800DC19E3 /* Livcap */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				CC699FB82DF57B34003A8C03 /* Exceptions for "Livcap" folder in "Livcap" target */,
+				CC8472362E00FDC0007B06E4 /* Exceptions for "Livcap" folder in "Embed Frameworks" phase from "Livcap" target */,
 			);
 			path = Livcap;
 			sourceTree = "<group>";
@@ -130,6 +157,7 @@
 				CC20B34E2DEE2BC800DC19E3 /* Sources */,
 				CC20B34F2DEE2BC800DC19E3 /* Frameworks */,
 				CC20B3502DEE2BC800DC19E3 /* Resources */,
+				CC8472352E00FDC0007B06E4 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
