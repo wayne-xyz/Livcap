@@ -17,18 +17,32 @@ class ASRSimpleViewModel: ObservableObject {
     @Published var canTranscribe = false
     @Published var transcriptionTime: TimeInterval = 0
     @Published var audioDuration: TimeInterval = 0
+    @Published var transcriberApproach: TranscriberApproach = .whisperCpp
     
     private var whisperCppContext: WhisperCpp?
     private let modelNames = whispercppModel()
     private let sampleNames = audioExampleNames()
     
+    private var sfSpeechRecognizer: SFSpeechRecog=SFSpeechRecog()
+    
+    
+    
     init() {
         Task {
             await loadModel(modelName: modelNames.baseEn,isLog: true)
+            
+            sfSpeechRecognizer.requestAuthorization { status in
+                switch status {
+                case .init(truncating: 0):
+                    print("Authorized")
+                default:
+                    print("Not authorized")
+                }
+            }
         }
     }
     
-    // MARK: - Model Loading
+    // MARK: - Model WhisperCpp Loading
     
     private func loadModel(modelName: String = whispercppModel().baseEn, isLog: Bool = true) async {
         whisperCppContext = nil
@@ -107,6 +121,46 @@ class ASRSimpleViewModel: ObservableObject {
         }
     }
     
+    
+    func sftranscribeSample(sampleName:String) async{
+        guard let sampleURL = Bundle.main.url(forResource: sampleName, withExtension: "wav") else {
+            statusMessage = "Sample audio file not found."
+            return
+        }
+        
+        do {
+            let audioFile = try AVAudioFile(forReading: sampleURL)
+            audioDuration = Double(audioFile.length) / audioFile.processingFormat.sampleRate
+            let startTime=Date()
+            
+            sfSpeechRecognizer.transcribe(audioURL:  sampleURL, onDevice: true) { [weak self] result in
+                guard let self = self else { return }
+                
+                switch result {
+                case .success(let transcription):
+                    self.transcribedText = transcription
+                    self.statusMessage = "SFSpeechRecognizer transcription successful."
+                    let endTime=Date()
+                    let timeElapsed=endTime.timeIntervalSince(startTime)
+                    self.transcriptionTime=timeElapsed
+                    print("Time Elapsed : \(timeElapsed) seconds")
+                case .failure(let error):
+                    print("Print Error : \(error)")
+                }
+            }
+
+            
+        }catch{
+            statusMessage="Error occurred while reading audio file."
+            print("Error occurred while reading audio file. \(error.localizedDescription)")
+        }
+
+    }
+    
+    
+    
+    
+    
     private func readAudioSamples(_ url: URL) throws -> [Float] {
         let audioFile = try AVAudioFile(forReading: url)
         let format = audioFile.processingFormat
@@ -123,7 +177,7 @@ class ASRSimpleViewModel: ObservableObject {
     }
 }
 
-enum modelOptions{
+enum TranscriberApproach{
     case whisperCpp
     case sfSpeechRecognizer
     case mlxwhisper

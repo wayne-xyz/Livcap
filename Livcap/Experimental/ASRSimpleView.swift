@@ -54,7 +54,7 @@ struct ASRSimpleView: View {
             // Transcribe Button
             Button(action: {
                 Task {
-                    await viewModel.transcribeSample(sampleName: selectedSample)
+                    await viewModel.sftranscribeSample(sampleName: selectedSample)
                 }
             }) {
                 Text("Transcribe Sample")
