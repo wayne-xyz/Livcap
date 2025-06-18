@@ -17,8 +17,7 @@ struct AppRouterView: View {
     var body: some View {
         Group {
             if permissionState.micPermissionGranted {
-                ASRSimpleView()
-                //                CaptionView()
+               CaptionView()
             }else{
                 PermissionView()
             }

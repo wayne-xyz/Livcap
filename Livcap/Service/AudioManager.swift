@@ -16,7 +16,7 @@ import Accelerate
 ///
 ///
 ///
-let CHUNK_BUFFER_SIZE=4096
+let CHUNK_BUFFER_SIZE=4096 // 256ms = 4096/16k float32
 
 
 final class AudioManager: ObservableObject {
@@ -152,7 +152,8 @@ final class AudioManager: ObservableObject {
         }
         return error == nil ? outputBuffer : buffer
     }
-
+    
+    // Simple VAD
     private func isSpeech(in buffer: AVAudioPCMBuffer) -> Bool {
         guard let channelData = buffer.floatChannelData?.pointee else { return false }
         var rms: Float = 0.0
