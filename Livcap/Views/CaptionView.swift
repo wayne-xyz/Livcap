@@ -16,7 +16,7 @@ struct CaptionView: View {
             Text(caption.statusText)
                 .frame(minWidth: 600, minHeight: 180)
                 
-            Text(caption.livecaptionText)
+            Text(caption.statusText)
                 .frame(minWidth: 600, minHeight:180)
         }
         .onAppear {

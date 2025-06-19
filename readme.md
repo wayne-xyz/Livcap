@@ -34,11 +34,12 @@
 Note:
 MLX-Swift only support safetensors file, using the convert.py to convert the .pt file to .safetensors file
 Usage:
-Loading the file in : 
+Add the file in : 
 Livcap/CoreWhisperCpp/ggml-base.en.bin
 Livcap/CoreWhisperCpp/ggml-tiny.en.bin
 Livcap/CoreWhisperCpp/ggml-base.en-encoder.mlmodelc
 Livcap/CoreWhisperCpp/ggml-tiny.en-encoder.mlmodelc
+Livcap/CoreWhisperCpp/whisper.xcframework
 
 # Citation
 

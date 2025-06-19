@@ -464,6 +464,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Livcap/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Livcap requires microphone access to show live caption";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Livcap uses speech recognition to convert your voice into text.";
@@ -495,6 +496,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Livcap/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Livcap requires microphone access to show live caption";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Livcap uses speech recognition to convert your voice into text.";

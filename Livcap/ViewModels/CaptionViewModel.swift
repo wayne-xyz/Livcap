@@ -17,45 +17,22 @@ final class CaptionViewModel: ObservableObject {
     // MARK: - Published Properties for UI
     
     /// The current recording state, published for the UI to observe.
-    @Published private(set) var isRecording = false
+    @Published private(set) var isRecording = false //for ui
     
     /// A status message to display in the UI (e.g., "Recording...", "Stopped", "Processing chunk...").
     @Published var statusText: String = "Ready to record"
     
-    @Published var livecaptionText: String = ""
     
     // MARK: - Private Properties
     
     private let audioManager: AudioManager
     private var cancellables = Set<AnyCancellable>()
+    private var audioProcessingTask: Task<Void,Error>?
     
     // MARK: - Initialization
     
     init(audioManager: AudioManager = AudioManager()) {
         self.audioManager = audioManager
-        
-        // Subscribe to the isRecording publisher from the AudioManager
-        // to automatically update our own isRecording property.
-        audioManager.$isRecording
-            .receive(on: DispatchQueue.main) // Ensure UI updates are on the main thread
-            .assign(to: \.isRecording, on: self)
-            .store(in: &cancellables)
-        
-        // Subscribe to the audio chunk publisher to know when new data is available.
-        audioManager.audioChunkPublisher
-            .receive(on: DispatchQueue.main) // Ensure UI updates are on the main thread
-            .sink(receiveCompletion: { [weak self] completion in
-                // Handle errors if they occur
-                if case .failure(let error) = completion {
-                    self?.statusText = "Error: \(error.localizedDescription)"
-                }
-            }, receiveValue: { [weak self] buffer in
-                // For this example, we'll just update the status text.
-                // In a real app, you would send this 'dataChunk' to a transcription service.
-                let bufferLength = String(format: "%.2f", Double(buffer.frameLength) )
-                self?.statusText = "🎤 Processing buffer size: (\(bufferLength) )..."
-            })
-            .store(in: &cancellables)
     }
     
     // MARK: - Public Control Methods
@@ -70,12 +47,53 @@ final class CaptionViewModel: ObservableObject {
     }
     
     private func startRecording() {
-        audioManager.start()
-        statusText = "Recording... Speak now!"
+        
+        guard audioProcessingTask == nil else {
+            return
+        }
+        
+        isRecording=true
+        
+        audioProcessingTask=Task{
+            do {
+                await audioManager.start()
+                
+                for try await samples in audioManager.audioFrames(){
+                    let sampleCount=samples.count
+                    await MainActor.run{
+                        self.statusText="Processing \(sampleCount) samples..."
+                    }
+                    try Task.checkCancellation( )
+                }
+                
+                await MainActor.run{
+                    self.statusText="Recoding stopped."
+                    self.isRecording=false
+                }
+                
+            }catch is CancellationError{
+                await MainActor.run{
+                    statusText="Recording stopped by user."
+                    self.isRecording=false
+                }
+                print("Recording stopped by user.")
+            }catch{
+                await MainActor.run{
+                    self.statusText="An error occurred: \(error)"
+                    self.isRecording=false
+                }
+                print("An error occurred: \(error)")
+            }
+            
+            self.audioProcessingTask=nil
+        }
     }
     
+    
+    
     private func stopRecording() {
+        guard isRecording else { return }
         audioManager.stop()
-        statusText = "Recording stopped."
+        audioProcessingTask?.cancel()
     }
 }
