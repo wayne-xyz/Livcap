@@ -22,6 +22,8 @@ final class CaptionViewModel: ObservableObject {
     /// A status message to display in the UI (e.g., "Recording...", "Stopped", "Processing chunk...").
     @Published var statusText: String = "Ready to record"
     
+    @Published var livecaptionText: String = ""
+    
     // MARK: - Private Properties
     
     private let audioManager: AudioManager
@@ -47,11 +49,11 @@ final class CaptionViewModel: ObservableObject {
                 if case .failure(let error) = completion {
                     self?.statusText = "Error: \(error.localizedDescription)"
                 }
-            }, receiveValue: { [weak self] dataChunk in
+            }, receiveValue: { [weak self] buffer in
                 // For this example, we'll just update the status text.
                 // In a real app, you would send this 'dataChunk' to a transcription service.
-                let chunkSize = String(format: "%.2f", Double(dataChunk.count) / 1024.0)
-                self?.statusText = "🎤 Processing audio chunk (\(chunkSize) KB)..."
+                let bufferLength = String(format: "%.2f", Double(buffer.frameLength) )
+                self?.statusText = "🎤 Processing buffer size: (\(bufferLength) )..."
             })
             .store(in: &cancellables)
     }

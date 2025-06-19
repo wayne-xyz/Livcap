@@ -24,6 +24,13 @@
    - [ ] Quantization support for speed up 
 
 
+## History highlight
+- Compare the whisper.cpp and built-in SFSpeechRecognizer. 
+- 3 Approaches audio arhc: 
+  - Dual-Layer Approach
+  - Hybrid Probabilistic Stream 
+  - Context-Aware Segement and Refine.
+
 Note:
 MLX-Swift only support safetensors file, using the convert.py to convert the .pt file to .safetensors file
 Usage:

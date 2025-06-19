@@ -16,14 +16,18 @@ import Accelerate
 ///
 ///
 ///
-let CHUNK_BUFFER_SIZE=4096 // 256ms = 4096/16k float32
+let FRAME_BUFFER_SIZE=4096 // 256ms = 4096/16k float32 , a frame 4096samples , a chunk ,  buffer storage
+let SAMPLE_RATE=16000.0
 
+
+// V1. 1stage with 512ms 2 frame longs silence dtection then to inference , only
+// Sp,Sp,Sp,Si,Sp,Sp,   or Sp, Sp, Sp,Si,Si,Si... (end of the chunk 2 frame 512ms of silence , then conclude sentence or pharse )
 
 final class AudioManager: ObservableObject {
 
     // MARK: - Published Properties
     @Published private(set) var isRecording = false
-    let audioChunkPublisher = PassthroughSubject<Data, Error>()
+    let audioChunkPublisher = PassthroughSubject<AVAudioPCMBuffer, Error>()
 
     // MARK: - Private Properties
     private var audioEngine: AVAudioEngine?
@@ -72,7 +76,7 @@ final class AudioManager: ObservableObject {
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         guard let processingFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
-            sampleRate: 16000,
+            sampleRate: SAMPLE_RATE,
             channels: 1,
             interleaved: false
         ) else {
@@ -82,17 +86,14 @@ final class AudioManager: ObservableObject {
 
         inputNode.installTap(
             onBus: 0,
-            bufferSize: AVAudioFrameCount(CHUNK_BUFFER_SIZE),
+            bufferSize: AVAudioFrameCount(FRAME_BUFFER_SIZE),
             format: recordingFormat
         ) { [weak self] buffer, time in
             guard let self = self else { return }
             
             self.processingQueue.async {
                 let pcmBuffer = self.convertBuffer(buffer, to: processingFormat)
-                if self.isSpeech(in: pcmBuffer) {
-                    let data = self.pcmBufferToData(pcmBuffer)
-                    self.audioChunkPublisher.send(data)
-                }
+                self.audioChunkPublisher.send(pcmBuffer)
             }
         }
 
@@ -153,22 +154,6 @@ final class AudioManager: ObservableObject {
         return error == nil ? outputBuffer : buffer
     }
     
-    // Simple VAD
-    private func isSpeech(in buffer: AVAudioPCMBuffer) -> Bool {
-        guard let channelData = buffer.floatChannelData?.pointee else { return false }
-        var rms: Float = 0.0
-        vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(buffer.frameLength))
-        let isSpeechDetected = rms > vadThreshold
-        
-        if isSpeechDetected {
-            print("🎤 Speech detected! RMS: \(rms), Threshold: \(vadThreshold)")
-        }
-        
-        return isSpeechDetected
-    }
 
-    private func pcmBufferToData(_ buffer: AVAudioPCMBuffer) -> Data {
-        let audioBuffer = buffer.audioBufferList.pointee.mBuffers
-        return Data(bytes: audioBuffer.mData!, count: Int(audioBuffer.mDataByteSize))
-    }
+
 }

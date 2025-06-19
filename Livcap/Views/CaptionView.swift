@@ -15,7 +15,9 @@ struct CaptionView: View {
         VStack{
             Text(caption.statusText)
                 .frame(minWidth: 600, minHeight: 180)
-           
+                
+            Text(caption.livecaptionText)
+                .frame(minWidth: 600, minHeight:180)
         }
         .onAppear {
             setupCaption()
