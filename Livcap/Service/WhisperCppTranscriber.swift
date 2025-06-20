@@ -8,22 +8,22 @@
 import Foundation
 import Combine
 
-struct SimpleTranscriptionResult:Sendable {
-    let text:String
-    let segmentID:UUID
+struct SimpleTranscriptionResult: Sendable {
+    let text: String
+    let segmentID: UUID
 }
 
-
 actor WhisperCppTranscriber {
-    private var whisperCppContext:WhisperCpp?
-    private let modelName:String
-    private var canTranscribe:Bool = false
+    private var whisperCppContext: WhisperCpp?
+    private let modelName: String
+    private var canTranscribe: Bool = false
     
-    let transcriptionPublisher=PassthroughSubject<SimpleTranscriptionResult,Error>()
+    // Make the publisher accessible from outside the actor
+    nonisolated let transcriptionPublisher = PassthroughSubject<SimpleTranscriptionResult, Error>()
     
-    init(modelName:String = WhisperModelName().baseEn) {
-        whisperCppContext=nil
-        self.modelName=modelName
+    init(modelName: String = WhisperModelName().baseEn) {
+        whisperCppContext = nil
+        self.modelName = modelName
         Task {
             await loadModle()
         }
@@ -36,16 +36,14 @@ actor WhisperCppTranscriber {
         }
         do {
             self.whisperCppContext = try WhisperCpp.createContext(path: modelPath)
-            canTranscribe=true
+            canTranscribe = true
             print("Whisper model initialized with path: \(modelName)")
-        }catch{
+        } catch {
             print("Error loading model: \(error.localizedDescription)")
         }
     }
     
-    
     func transcribe(segment: TranscribableAudioSegment) async {
-        
         guard canTranscribe, let whisperCppContext = whisperCppContext else {
             print("Model not loaded or not ready for transcription.")
             return
@@ -57,11 +55,7 @@ actor WhisperCppTranscriber {
         let transcriptionText = await whisperCppContext.getTranscription()
         print("Whisper result for ID \(segment.id): \"\(transcriptionText)\"")
 
-          // Send the complete transcription text
+        // Send the complete transcription text
         transcriptionPublisher.send(SimpleTranscriptionResult(text: transcriptionText, segmentID: segment.id))
-
-
     }
-    
-    
 }

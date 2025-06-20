@@ -22,8 +22,10 @@ final class CaptionViewModel: ObservableObject {
     
     /// A status message to display in the UI (e.g., "Recording...", "Stopped", "Processing chunk...").
     @Published var statusText: String = "Ready to record"
-    @Published var captionText: String = "..."
     
+    // MARK: - Transcription Display Manager
+    
+    @Published var transcriptionManager: TranscriptionDisplayManager
     
     // MARK: - Private Properties
     
@@ -32,17 +34,49 @@ final class CaptionViewModel: ObservableObject {
     private var whisperCppTranscriber: WhisperCppTranscriber?
     
     private var audioProcessingTask: Task<Void,Error>?
-    private var transcriblerCancellable:AnyCancellable?
+    private var transcriblerCancellable: AnyCancellable?
+    
     // MARK: - Initialization
     
     init(audioManager: AudioManager = AudioManager()) {
         self.audioManager = audioManager
-        self.buffermanager=BufferManager()
-        whisperCppTranscriber=WhisperCppTranscriber()
+        self.buffermanager = BufferManager()
+        self.whisperCppTranscriber = WhisperCppTranscriber()
+        self.transcriptionManager = TranscriptionDisplayManager()
+        setupTranscriptionSubscription()
     }
     
     // MARK: - Core Pipeline subscriptions
-
+    
+    private func setupTranscriptionSubscription() {
+        guard let transcriber = whisperCppTranscriber else { return }
+        
+        transcriblerCancellable = transcriber.transcriptionPublisher
+            .receive(on: DispatchQueue.main)
+            .sink(
+                receiveCompletion: { completion in
+                    switch completion {
+                    case .finished:
+                        print("Transcription publisher finished")
+                    case .failure(let error):
+                        print("Transcription publisher error: \(error)")
+                        self.statusText = "Transcription error: \(error.localizedDescription)"
+                        self.transcriptionManager.updateStatus(.error(error.localizedDescription))
+                    }
+                },
+                receiveValue: { [weak self] result in
+                    self?.handleTranscriptionResult(result)
+                }
+            )
+    }
+    
+    private func handleTranscriptionResult(_ result: SimpleTranscriptionResult) {
+        // Delegate to the transcription manager
+        transcriptionManager.processTranscription(result)
+        
+        // Update status text from the manager
+        statusText = transcriptionManager.displayStatus.description
+    }
     
     // MARK: - Main control functions
     
@@ -56,12 +90,14 @@ final class CaptionViewModel: ObservableObject {
     }
     
     private func startRecording() {
-        
         guard audioProcessingTask == nil else {
             return
         }
         
-        isRecording=true
+        isRecording = true
+        statusText = "Starting recording..."
+        transcriptionManager.clearAll()
+        transcriptionManager.updateStatus(.ready)
         
         Task{
             await audioManager.start()
@@ -85,19 +121,22 @@ final class CaptionViewModel: ObservableObject {
                     
 
                     await MainActor.run{
-                        self.statusText="Recoding stopped."
+                        self.statusText="Recording stopped."
                         self.isRecording=false
+                        self.transcriptionManager.updateStatus(.ready)
                     }
                 }catch is CancellationError{
                     await MainActor.run{
                         self.statusText="Recording stopped by user."
                         self.isRecording=false
+                        self.transcriptionManager.updateStatus(.ready)
                     }
                     print("Recording stopped by user.")
                 }catch{
                     await MainActor.run{
                         self.statusText="An error occurred: \(error)"
                         self.isRecording=false
+                        self.transcriptionManager.updateStatus(.error(error.localizedDescription))
                     }
                     print("An error occurred: \(error)")
                 }
@@ -106,12 +145,24 @@ final class CaptionViewModel: ObservableObject {
         }
     }
     
-    
-    
     private func stopRecording() {
         guard isRecording else { return }
         audioManager.stop()
         audioProcessingTask?.cancel()
         audioProcessingTask=nil
+    }
+    
+    func clearCaptions() {
+        transcriptionManager.clearAll()
+    }
+    
+    // MARK: - Computed Properties for UI
+    
+    var captionText: String {
+        return transcriptionManager.displayCaption
+    }
+    
+    var captionHistory: [CaptionEntry] {
+        return transcriptionManager.captionHistory
     }
 }
