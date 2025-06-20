@@ -38,6 +38,7 @@ final class CaptionViewModel: ObservableObject {
     init(audioManager: AudioManager = AudioManager()) {
         self.audioManager = audioManager
         self.buffermanager=BufferManager()
+        whisperCppTranscriber=WhisperCppTranscriber()
     }
     
     // MARK: - Core Pipeline subscriptions
@@ -74,6 +75,7 @@ final class CaptionViewModel: ObservableObject {
                     
                     for try await segment in await self.buffermanager.processFrames(audioFrameStream){
                         print("ViewModelL; Got a segment: \(segment.id)")
+                        await self.whisperCppTranscriber?.transcribe(segment: segment)
                         
                         try Task.checkCancellation()
                         

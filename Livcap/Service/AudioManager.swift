@@ -111,7 +111,6 @@ final class AudioManager: ObservableObject {
             format: recordingFormat
         ) { [weak self] buffer, time in
             guard let self = self else { return }
-            print("buffer length: \(buffer.frameLength)")
             Task.detached {
                 // downsampling to the 16k mono, after convert the buffer framelength extend to the 1600 instead of the 4096/48000*16000=1366
                 let pcmBuffer = self.convertBuffer(buffer, to: processingFormat)

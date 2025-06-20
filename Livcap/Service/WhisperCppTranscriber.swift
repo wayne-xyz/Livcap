@@ -21,7 +21,7 @@ actor WhisperCppTranscriber {
     
     let transcriptionPublisher=PassthroughSubject<SimpleTranscriptionResult,Error>()
     
-    init(modelName:String = WhisperModelName().tinyEn) {
+    init(modelName:String = WhisperModelName().baseEn) {
         whisperCppContext=nil
         self.modelName=modelName
         Task {
