@@ -22,6 +22,7 @@ final class CaptionViewModel: ObservableObject {
     
     /// A status message to display in the UI (e.g., "Recording...", "Stopped", "Processing chunk...").
     @Published var statusText: String = "Ready to record"
+    @Published var captionText: String = "..."
     
     
     // MARK: - Private Properties
@@ -59,44 +60,47 @@ final class CaptionViewModel: ObservableObject {
             return
         }
         
-        
-        
-        
-        
         isRecording=true
         
-        audioProcessingTask=Task{
-            do {
-                await audioManager.start()
-                
-                for try await samples in audioManager.audioFrames(){
-                    let sampleCount=samples.count
-                    await MainActor.run{
-                        self.statusText="Processing \(sampleCount) samples..."
-                    }
-                    try Task.checkCancellation( )
-                }
-                
-                await MainActor.run{
-                    self.statusText="Recoding stopped."
-                    self.isRecording=false
-                }
-                
-            }catch is CancellationError{
-                await MainActor.run{
-                    statusText="Recording stopped by user."
-                    self.isRecording=false
-                }
-                print("Recording stopped by user.")
-            }catch{
-                await MainActor.run{
-                    self.statusText="An error occurred: \(error)"
-                    self.isRecording=false
-                }
-                print("An error occurred: \(error)")
-            }
+        Task{
+            await audioManager.start()
             
-            self.audioProcessingTask=nil
+            audioProcessingTask=Task{ [weak self] in
+                guard let self=self else {return}
+                print("ViewModeL; Starting audio processing...")
+                
+                do {
+                    let audioFrameStream=self.audioManager.audioFrames()
+                    
+                    for try await segment in await self.buffermanager.processFrames(audioFrameStream){
+                        print("ViewModelL; Got a segment: \(segment.id)")
+                        
+                        try Task.checkCancellation()
+                        
+                    }
+                    
+                    print("Audio frames stream finished.")
+                    
+
+                    await MainActor.run{
+                        self.statusText="Recoding stopped."
+                        self.isRecording=false
+                    }
+                }catch is CancellationError{
+                    await MainActor.run{
+                        self.statusText="Recording stopped by user."
+                        self.isRecording=false
+                    }
+                    print("Recording stopped by user.")
+                }catch{
+                    await MainActor.run{
+                        self.statusText="An error occurred: \(error)"
+                        self.isRecording=false
+                    }
+                    print("An error occurred: \(error)")
+                }
+                self.audioProcessingTask=nil
+            }
         }
     }
     
@@ -106,5 +110,6 @@ final class CaptionViewModel: ObservableObject {
         guard isRecording else { return }
         audioManager.stop()
         audioProcessingTask?.cancel()
+        audioProcessingTask=nil
     }
 }

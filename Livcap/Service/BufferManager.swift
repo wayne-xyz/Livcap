@@ -22,7 +22,7 @@ actor BufferManager {
     // receved from the audiomanage 16k , each frame 1600samples, 100ms
     private let sampleRate:Double=16000.0
     private let frameDuration:Int=100
-    private let silenceTriggerFrameCount:Int=4
+    private let silenceTriggerFrameCount:Int=3
     private let maxAccumulationDurationMS:Int=15000
     
     //internel buffers and state
@@ -32,11 +32,16 @@ actor BufferManager {
     private var isCurrentlySpeaking:Bool=false
     private var currentRecordedDurationMS:Int=0
     
-    private var vadProcessor:VADProcessor!
+    private let vadProcessor: VADProcessor
+    
+    init(vadProcessor: VADProcessor = VADProcessor()) {
+       self.vadProcessor = vadProcessor
+    }
+
     
     
-    func appendAudioSamples(_ samples:[Float]) async -> TranscribableAudioSegment{
-        var frameDuration=Int(Double(samples.count)/sampleRate*1000) // it supposed to be 100
+    func appendAudioSamples(_ samples:[Float]) async -> TranscribableAudioSegment?{
+        let frameDuration=Int(Double(samples.count)/sampleRate*1000) // it supposed to be 100
         self.currentRecordedDurationMS+=frameDuration
         
         let isSpeechInFrame:Bool=vadProcessor.processAudioChunk(samples)
@@ -70,7 +75,30 @@ actor BufferManager {
             }
         }
         
-        return segmentToReturn!
+        return segmentToReturn
+    }
+    
+    
+    func processFrames<S: AsyncSequence>(_ frames:S) -> AsyncStream<TranscribableAudioSegment> where S.Element == [Float] {
+        AsyncStream{ continuation in
+            Task {
+                do {
+                    for try await frame in frames {
+                        if let segemt = await self.appendAudioSamples(frame) {
+                            continuation.yield(segemt)
+                        }
+                        try Task.checkCancellation()
+                    }
+                    
+                    if let finalSegment=await self.getRemainingSegment(){
+                        continuation.yield(finalSegment)
+                    }
+                }catch{
+                    print("Buffer Manager Error: Error processing frames: \(error)")
+                }
+                continuation.finish()
+            }
+        }
     }
     
     

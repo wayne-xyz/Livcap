@@ -11,9 +11,9 @@ import Accelerate
 
 // VADProcessor.swift
 final class VADProcessor {
-    private let energyThreshold: Float = 0.005
-    private let speechCountThreshold = 3 // Number of consecutive speech frames to confirm speech
-    private let silenceCountThreshold = 5 // Number of consecutive silence frames to confirm silence
+    private let energyThreshold: Float = 0.01
+    private let speechCountThreshold = 1 // Number of consecutive speech frames to confirm speech
+    private let silenceCountThreshold = 2 // Number of consecutive silence frames to confirm silence
 
     private var consecutiveSpeechFrames: Int = 0
     private var consecutiveSilenceFrames: Int = 0
@@ -24,6 +24,7 @@ final class VADProcessor {
         vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
 
         let currentChunkIsAboveThreshold = rms > energyThreshold // Instantaneous decision
+        //print("RMS: \(rms), Above Threshold: \(currentChunkIsAboveThreshold)")
 
         if currentChunkIsAboveThreshold {
             consecutiveSpeechFrames += 1
