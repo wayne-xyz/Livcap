@@ -12,6 +12,12 @@ enum WhisperError: Error {
     case couldNotInitializeContext
 }
 
+struct WhisperModelName{
+    let baseEn="ggml-base.en"
+    let tinyEn="ggml-tiny.en"
+}
+
+
 actor WhisperCpp{
     private var context:OpaquePointer
     

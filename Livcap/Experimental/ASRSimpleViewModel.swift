@@ -20,7 +20,7 @@ class ASRSimpleViewModel: ObservableObject {
     @Published var transcriberApproach: TranscriberApproach = .whisperCpp
     
     private var whisperCppContext: WhisperCpp?
-    private let modelNames = whispercppModel()
+    private let modelNames = WhisperModelName()
     private let sampleNames = audioExampleNames()
     
     private var sfSpeechRecognizer: SFSpeechRecog=SFSpeechRecog()
@@ -44,7 +44,7 @@ class ASRSimpleViewModel: ObservableObject {
     
     // MARK: - Model WhisperCpp Loading
     
-    private func loadModel(modelName: String = whispercppModel().baseEn, isLog: Bool = true) async {
+    private func loadModel(modelName: String = WhisperModelName().tinyEn, isLog: Bool = true) async {
         whisperCppContext = nil
         let loadingStartTime=Date()
         if isLog {
@@ -183,10 +183,7 @@ enum TranscriberApproach{
     case mlxwhisper
 }
 
-struct whispercppModel {
-    let baseEn = "ggml-base.en"
-    let tinyEn = "ggml-tiny.en"
-}
+
 
 struct audioExampleNames {
     let sample1 = "Speaker26_000"

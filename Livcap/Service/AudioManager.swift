@@ -8,8 +8,8 @@ import Foundation
 import AVFoundation // Still needed for AVAudioEngine
 import Accelerate
 
-let FRAME_BUFFER_SIZE=4096 // 256ms = 4096/16k float32 , a frame 4096samples , a chunk ,  buffer storage
-let SAMPLE_RATE=16000.0
+
+
 // Samples , Frames, chunks buffers,
 // V1. 1stage with 512ms 2 frame longs silence dtection then to inference , only
 // Sp,Sp,Sp,Si,Sp,Sp,   or Sp, Sp, Sp,Si,Si,Si... (end of the chunk 2 frame 512ms of silence , then conclude sentence or pharse )
@@ -23,6 +23,11 @@ let SAMPLE_RATE=16000.0
 ///
 ///
 final class AudioManager: ObservableObject {
+    // configuration constatn
+    private let frameBufferSize: Int = 4800 // 100ms = 4800/48k float32 , a frame buffer is 4800sample.
+    private let downSampleRate: Double = 16000.0  // conver the 48k to 16k 
+    
+    
 
     // MARK: - Published Properties
     @Published private(set) var isRecording = false //for audio engine
@@ -91,7 +96,7 @@ final class AudioManager: ObservableObject {
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         guard let processingFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
-            sampleRate: SAMPLE_RATE,
+            sampleRate: downSampleRate,
             channels: 1,
             interleaved: false
         ) else {
@@ -102,11 +107,11 @@ final class AudioManager: ObservableObject {
 
         inputNode.installTap(
             onBus: 0,
-            bufferSize: AVAudioFrameCount(FRAME_BUFFER_SIZE),
+            bufferSize: AVAudioFrameCount(frameBufferSize),
             format: recordingFormat
         ) { [weak self] buffer, time in
             guard let self = self else { return }
-            
+            print("buffer length: \(buffer.frameLength)")
             Task.detached {
                 // downsampling to the 16k mono, after convert the buffer framelength extend to the 1600 instead of the 4096/48000*16000=1366
                 let pcmBuffer = self.convertBuffer(buffer, to: processingFormat)
@@ -119,8 +124,6 @@ final class AudioManager: ObservableObject {
                 let samples = Array(UnsafeBufferPointer(start: floatChannelData[0], count: Int(pcmBuffer.frameLength)))
                 self.audioStreamContinuation?.yield(samples)
             }
-            
-
         }
 
         audioEngine?.prepare()
@@ -147,6 +150,11 @@ final class AudioManager: ObservableObject {
         audioStreamContinuation?.finish()
     }
 
+    
+    
+    
+    
+    
     // MARK: - Helpers and Utilities
 
     /// **CHANGED for macOS**: Requests microphone access using AVCaptureDevice.
@@ -184,7 +192,7 @@ final class AudioManager: ObservableObject {
         }
         return error == nil ? outputBuffer : buffer
     }
-    
+
 
 
 }

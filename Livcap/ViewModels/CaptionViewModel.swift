@@ -6,7 +6,8 @@
 //
 
 import Foundation
-import Combine // Needed for Combine framework elements like Cancellable
+import Combine
+
 
 /// `TranscriptionViewModel` acts as a bridge between the `AudioManager` and the SwiftUI `View`.
 ///
@@ -26,16 +27,22 @@ final class CaptionViewModel: ObservableObject {
     // MARK: - Private Properties
     
     private let audioManager: AudioManager
-    private var cancellables = Set<AnyCancellable>()
-    private var audioProcessingTask: Task<Void,Error>?
+    private let buffermanager: BufferManager
+    private var whisperCppTranscriber: WhisperCppTranscriber?
     
+    private var audioProcessingTask: Task<Void,Error>?
+    private var transcriblerCancellable:AnyCancellable?
     // MARK: - Initialization
     
     init(audioManager: AudioManager = AudioManager()) {
         self.audioManager = audioManager
+        self.buffermanager=BufferManager()
     }
     
-    // MARK: - Public Control Methods
+    // MARK: - Core Pipeline subscriptions
+
+    
+    // MARK: - Main control functions
     
     /// Toggles the recording state.
     func toggleRecording() {
@@ -51,6 +58,10 @@ final class CaptionViewModel: ObservableObject {
         guard audioProcessingTask == nil else {
             return
         }
+        
+        
+        
+        
         
         isRecording=true
         
