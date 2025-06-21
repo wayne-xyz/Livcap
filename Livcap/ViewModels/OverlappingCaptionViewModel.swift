@@ -56,25 +56,28 @@ class OverlappingCaptionViewModel: ObservableObject {
                 
                 do {
                     let audioFrameStream = self.audioManager.audioFrames()
-                    let windowStream = await self.overlappingBufferManager.windowStream()
                     
-                    // Start processing audio in background
-                    Task {
-                        await self.overlappingBufferManager.processAudioStream(audioFrameStream)
-                    }
-                    
-                    // Process windows as they come
-                    for try await window in windowStream {
-                        print("OverlappingCaptionViewModel: Processing window \(window.id.uuidString.prefix(8))")
-                        
-                        let update = await self.streamingTranscriber.transcribeWindow(window)
-                        
-                        await MainActor.run {
-                            self.handleTranscriptionUpdate(update)
+                    // Subscribe to window updates
+                    let windowCancellable = await self.overlappingBufferManager.windows
+                        .sink { window in
+                            Task { [weak self] in
+                                guard let self = self else { return }
+                                
+                                print("OverlappingCaptionViewModel: Processing window \(window.id.uuidString.prefix(8))")
+                                
+                                let update = await self.streamingTranscriber.transcribeWindow(window)
+                                
+                                await MainActor.run {
+                                    self.handleTranscriptionUpdate(update)
+                                }
+                            }
                         }
-                        
-                        try Task.checkCancellation()
-                    }
+                    
+                    // Start processing audio
+                    await self.overlappingBufferManager.processAudioStream(audioFrameStream)
+                    
+                    // Keep the task alive until cancelled
+                    try await Task.sleep(nanoseconds: 1_000_000_000_000) // 1000 seconds
                     
                     await MainActor.run {
                         self.statusText = "Overlapping windows test completed"

@@ -164,66 +164,56 @@ struct DebugInfoView: View {
     let viewModel: OverlappingCaptionViewModel
     
     var body: some View {
-        NavigationView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Debug Information")
-                    .font(.title)
-                    .fontWeight(.bold)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Debug Information")
+                .font(.title)
+                .fontWeight(.bold)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("WhisperLive Configuration:")
+                    .font(.headline)
                 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("WhisperLive Configuration:")
-                        .font(.headline)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("• Window Size: 3 seconds (48,000 samples)")
-                        Text("• Step Size: 1 second (16,000 samples)")
-                        Text("• Overlap: 2 seconds (32,000 samples)")
-                        Text("• Update Frequency: Every 1 second")
-                    }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("• Window Size: 3 seconds (48,000 samples)")
+                    Text("• Step Size: 1 second (16,000 samples)")
+                    Text("• Overlap: 2 seconds (32,000 samples)")
+                    Text("• Update Frequency: Every 1 second")
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Current State:")
+                    .font(.headline)
+                
+                Text(viewModel.debugInfo)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                }
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Current State:")
-                        .font(.headline)
-                    
-                    Text(viewModel.debugInfo)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
-                }
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Test Instructions:")
-                        .font(.headline)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("1. Click 'Start' to begin recording")
-                        Text("2. Speak continuously for at least 3 seconds")
-                        Text("3. Watch for new words appearing every ~1 second")
-                        Text("4. Check console for detailed logs")
-                        Text("5. Monitor buffer stats for window timing")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-                
-                Spacer()
+                    .padding()
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
             }
-            .padding()
-            .navigationTitle("Debug Info")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        // Dismiss sheet
-                    }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Test Instructions:")
+                    .font(.headline)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("1. Click 'Start' to begin recording")
+                    Text("2. Speak continuously for at least 3 seconds")
+                    Text("3. Watch for new words appearing every ~1 second")
+                    Text("4. Check console for detailed logs")
+                    Text("5. Monitor buffer stats for window timing")
                 }
+                .font(.caption)
+                .foregroundColor(.secondary)
             }
+            
+            Spacer()
         }
+        .padding()
+        .frame(width: 400, height: 500)
     }
 }
 
