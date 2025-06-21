@@ -1,6 +1,7 @@
 # Livcap
 
-
+This branch for the silence driven churnk processing strategy. 
+only sequence style of the segements , no overlap. 
 
 ## Highlights:
 - Privacy first, local model, no cloud, no analytics, no ads. No need internet connection. Free and open source. 
