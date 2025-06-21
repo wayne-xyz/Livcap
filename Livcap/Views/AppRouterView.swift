@@ -10,12 +10,48 @@ import AVFoundation
 
 struct AppRouterView: View {
     @StateObject private var permissionState=PermissionManager.shared
+    @State private var currentView: AppView = .original
+    
+    enum AppView {
+        case original, phase1, phase2
+    }
 
     var body: some View {
         Group {
             if permissionState.micPermissionGranted {
-               CaptionView()
-            }else{
+                switch currentView {
+                case .phase1:
+                    SimplePhase1TestView()
+                        .toolbar {
+                            ToolbarItem(placement: .primaryAction) {
+                                Menu("Switch View") {
+                                    Button("Original View") { currentView = .original }
+                                    Button("Phase 2 Test") { currentView = .phase2 }
+                                }
+                            }
+                        }
+                case .phase2:
+                    Phase2TestView()
+                        .toolbar {
+                            ToolbarItem(placement: .primaryAction) {
+                                Menu("Switch View") {
+                                    Button("Original View") { currentView = .original }
+                                    Button("Phase 1 Test") { currentView = .phase1 }
+                                }
+                            }
+                        }
+                case .original:
+                    CaptionView()
+                        .toolbar {
+                            ToolbarItem(placement: .primaryAction) {
+                                Menu("Test Views") {
+                                    Button("Phase 1 Test") { currentView = .phase1 }
+                                    Button("Phase 2 Test") { currentView = .phase2 }
+                                }
+                            }
+                        }
+                }
+            } else {
                 PermissionView()
             }
         }
