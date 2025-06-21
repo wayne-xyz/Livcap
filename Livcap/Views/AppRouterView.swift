@@ -103,7 +103,6 @@ struct AppRouterView: View {
         // Make title bar transparent and match content background
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.titleVisibility = .hidden
         // Set window background to match content
         window.backgroundColor = NSColor(Color.backgroundColor).withAlphaComponent(0.75)
         
