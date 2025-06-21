@@ -12,12 +12,15 @@ struct CaptionView: View {
     @State private var isPinned = false
     @State private var isHovering = false
     
+    private let opacityLevel: Double=0.75
+    
     var body: some View {
         ZStack {
             // Transparent background with blur
             Rectangle()
-                .fill(.clear)
+                .fill(Color.backgroundColor)
                 .background(.ultraThinMaterial, in: Rectangle())
+                .opacity(opacityLevel)
             
             VStack(spacing: 0) {
                 // Pin button - only visible when hovering
@@ -39,18 +42,14 @@ struct CaptionView: View {
                             )
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .help(isPinned ? "Unpin from top (window will stay behind other apps)" : "Pin to top (window will stay in front of other apps)")
+                    .help(isPinned ? "Unpin from top" : "Pin to top ")
                     .opacity(isHovering ? 1.0 : 0.0)
                     .animation(.easeInOut(duration: 0.2), value: isHovering)
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
-                .background(
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.5)
-                )
+
                 
                 // Simple scrollable caption display
                 ScrollViewReader { proxy in
@@ -65,14 +64,18 @@ struct CaptionView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(
                                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .fill(.ultraThinMaterial)
-                                            .opacity(0.5)
+                                            .fill(Color.clear)
+                                            .opacity(opacityLevel)
                                     )
                                     .id(entry.id)
                             }
                         }
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)
+                        
+                    
+                        
+                        
                     }
                     .onChange(of: caption.captionHistory.count) { _, _ in
                         if let lastEntry = caption.captionHistory.last {
@@ -81,6 +84,9 @@ struct CaptionView: View {
                             }
                         }
                     }
+                    
+
+                    
                 }
             }
         }
