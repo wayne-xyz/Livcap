@@ -123,7 +123,7 @@ actor BufferManager {
      }
     
     func reset() async {
-        if let segment = self.createAndClearCurrentSegment(reason: .forcedStop) {
+        if self.createAndClearCurrentSegment(reason: .forcedStop) != nil {
             print("SpeechAccumulator reset with pending segment")
         }
         self.accumulatedSpeechBuffer.removeAll()
