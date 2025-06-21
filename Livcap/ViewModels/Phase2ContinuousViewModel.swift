@@ -166,19 +166,38 @@ final class Phase2ContinuousViewModel: ObservableObject {
                 lastVADUpdate = now
             }
             
-            // Enhanced decision logic
+            // New strategy: VAD can trigger immediately OR wait for time trigger
             let hasMinimumSpeech = enhancedVAD.shouldTriggerTranscription()
             let recentSpeechActivity = vadMetrics?.speechPercentage ?? 0.0
             let currentConfidence = vadResult.confidence
+            let isCurrentlySpeaking = vadResult.isSpeech
             
-            // Require both traditional trigger and VAD confirmation
-            let shouldTrigger = chunk.isTranscriptionTrigger && 
-                               hasMinimumSpeech && 
-                               recentSpeechActivity > 0.3 && 
-                               currentConfidence > 0.5
+            // Immediate trigger on speech detection OR regular time-based trigger
+            let immediateVADTrigger = isCurrentlySpeaking && currentConfidence > 0.3 && hasMinimumSpeech
+            let timeBasedTrigger = chunk.isTranscriptionTrigger && hasMinimumSpeech && recentSpeechActivity > 0.2
+            
+            let shouldTrigger = immediateVADTrigger || timeBasedTrigger
+            
+            // Post VAD decision for detailed view
+            let reason = shouldTrigger ? 
+                        (immediateVADTrigger ? "Immediate speech trigger" : "Time-based speech trigger") :
+                        !isCurrentlySpeaking ? "No speech detected" :
+                        currentConfidence <= 0.3 ? "Low confidence" :
+                        !hasMinimumSpeech ? "Insufficient speech duration" : "No trigger condition met"
+            
+            NotificationCenter.default.post(
+                name: Notification.Name("VADDecision"),
+                object: [
+                    "timestamp": Date(),
+                    "energyLevel": vadResult.energyLevel,
+                    "finalDecision": shouldTrigger,
+                    "confidence": currentConfidence,
+                    "reason": reason
+                ]
+            )
             
             if shouldTrigger {
-                print("🎤 Enhanced VAD: Speech=\(String(format: "%.1f", recentSpeechActivity * 100))%, Confidence=\(String(format: "%.3f", currentConfidence))")
+                print("🎤 Enhanced VAD: \(reason) - Speech=\(String(format: "%.1f", recentSpeechActivity * 100))%, Confidence=\(String(format: "%.3f", currentConfidence))")
             }
             
             return shouldTrigger

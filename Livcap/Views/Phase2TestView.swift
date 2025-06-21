@@ -268,8 +268,8 @@ struct Phase2TestView: View {
             
             HStack(spacing: 20) {
                 vadDetailItem("Energy Level", value: String(format: "%.4f", viewModel.enhancedVAD.currentEnergyLevel))
-                vadDetailItem("Spectral Activity", value: String(format: "%.3f", viewModel.enhancedVAD.currentSpectralActivity))
                 vadDetailItem("Confidence", value: String(format: "%.3f", viewModel.enhancedVAD.currentConfidence))
+                vadDetailItem("Threshold", value: String(format: "%.3f", 0.01))
             }
             
             if let vadInfo = viewModel.vadMetrics {

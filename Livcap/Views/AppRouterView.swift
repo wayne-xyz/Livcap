@@ -31,7 +31,7 @@ struct AppRouterView: View {
                             }
                         }
                 case .phase2:
-                    Phase2TestView()
+                    DetailedPhase2TestView()
                         .toolbar {
                             ToolbarItem(placement: .primaryAction) {
                                 Menu("Switch View") {

@@ -107,7 +107,24 @@ class TranscriptionStabilizationManager: ObservableObject {
            result.overallConfidence < 0.3 || 
            cleanText.contains("[ Silence ]") ||
            cleanText.count < 3 {
+            
+            let skipReason = cleanText.isEmpty ? "Empty text" :
+                           result.overallConfidence < 0.3 ? "Low confidence (<0.3)" :
+                           cleanText.contains("[ Silence ]") ? "Silence marker detected" : "Text too short"
+            
             print("🔍 Skipping low-quality transcription: '\(cleanText)' (confidence: \(result.overallConfidence))")
+            
+            // Post skipped result notification
+            NotificationCenter.default.post(
+                name: Notification.Name("SkippedResult"),
+                object: [
+                    "timestamp": timestamp,
+                    "text": cleanText,
+                    "confidence": result.overallConfidence,
+                    "reason": skipReason
+                ]
+            )
+            
             return
         }
         
@@ -116,6 +133,18 @@ class TranscriptionStabilizationManager: ObservableObject {
             result: result,
             bufferStartTimeMs: bufferStartTimeMs,
             timestamp: timestamp
+        )
+        
+        // Post successful transcription window notification
+        NotificationCenter.default.post(
+            name: Notification.Name("TranscriptionWindow"),
+            object: [
+                "timestamp": timestamp,
+                "text": timestampedTranscription.text,
+                "confidence": timestampedTranscription.overallConfidence,
+                "isSkipped": false,
+                "words": timestampedTranscription.words.map { $0.text }
+            ]
         )
         
         // Add to history
@@ -130,6 +159,20 @@ class TranscriptionStabilizationManager: ObservableObject {
             )
             
             overlapAnalyses.append(overlapAnalysis)
+            
+            // Post overlap analysis notification
+            NotificationCenter.default.post(
+                name: Notification.Name("OverlapAnalysis"),
+                object: [
+                    "windowPair": "Window \(transcriptionHistory.count-1) → \(transcriptionHistory.count)",
+                    "previousWords": overlapAnalysis.previousWords.map { $0.text },
+                    "currentWords": overlapAnalysis.currentWords.map { $0.text },
+                    "exactMatches": overlapAnalysis.matchedPairs.map { ($0.previous.text, $0.current.text) },
+                    "conflicts": overlapAnalysis.conflicts.map { ($0.previous.text, $0.current.text) },
+                    "newWords": overlapAnalysis.newWords.map { $0.text },
+                    "overlapConfidence": overlapAnalysis.confidence
+                ]
+            )
             
             // Apply stabilization based on overlap analysis
             applyStabilization(overlapAnalysis)

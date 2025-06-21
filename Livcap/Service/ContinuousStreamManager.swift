@@ -13,7 +13,7 @@ struct ContinuousStreamConfig {
     let sampleRate: Int = 16000         // 16kHz sampling rate
     let bufferSizeMs: Int = 5000        // 5 second sliding window (max context for inference)
     let overlapMs: Int = 1000           // 1 second minimum buffer before transcription
-    let transcriptionTriggerMs: Int = 2000  // Trigger transcription every 2 seconds (move stride)
+    let transcriptionTriggerMs: Int = 1000  // Trigger transcription every 1 second (move stride)
     
     var samplesPerChunk: Int {
         return (sampleRate * chunkSizeMs) / 1000  // 1600 samples per 100ms
@@ -28,7 +28,7 @@ struct ContinuousStreamConfig {
     }
     
     var transcriptionTriggerSamples: Int {
-        return (sampleRate * transcriptionTriggerMs) / 1000  // 32000 samples for 2 seconds
+        return (sampleRate * transcriptionTriggerMs) / 1000  // 16000 samples for 1 second
     }
 }
 
@@ -71,7 +71,7 @@ actor ContinuousStreamManager {
         print("- Chunk size: \(config.chunkSizeMs)ms (\(config.samplesPerChunk) samples)")
         print("- Buffer size: \(config.bufferSizeMs)ms (\(config.bufferSizeInSamples) samples)")
         print("- Overlap: \(config.overlapMs)ms (\(config.overlapSizeInSamples) samples)")
-        print("- Transcription trigger: \(config.transcriptionTriggerMs)ms")
+        print("- Transcription trigger: \(config.transcriptionTriggerMs)ms (1s stride, 4s overlap)")
     }
     
     func processAudioChunk(_ samples: [Float]) async {

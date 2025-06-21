@@ -10,8 +10,7 @@ import Accelerate
 import SwiftUI
 
 struct VADConfig {
-    let energyThreshold: Float = 0.01           // Energy-based threshold
-    let spectralThreshold: Float = 0.3          // Spectral-based threshold
+    let energyThreshold: Float = 0.01           // RMS energy threshold
     let hysteresisMs: Int = 200                 // Prevent rapid state changes
     let minSpeechDurationMs: Int = 300          // Minimum speech segment
     let minSilenceDurationMs: Int = 500         // Minimum silence for segment end
@@ -34,7 +33,6 @@ struct VADResult {
     let isSpeech: Bool
     let confidence: Float
     let energyLevel: Float
-    let spectralActivity: Float
     let timestamp: Date
 }
 
@@ -56,71 +54,39 @@ class EnhancedVAD: ObservableObject {
     private var silenceStartTime: Date?         // Current silence segment start
     private var vadResults: [VADResult] = []    // Recent VAD results for analysis
     
-    // Spectral Analysis
-    private var fftSetup: FFTSetup?
-    private let fftSize = 512
-    private var hannWindow: [Float] = []
-    
     // Monitoring
     @Published var currentVADState: Bool = false
     @Published var currentConfidence: Float = 0.0
     @Published var currentEnergyLevel: Float = 0.0
-    @Published var currentSpectralActivity: Float = 0.0
     @Published var activeSpeechSegments: [SpeechSegment] = []
     
     init() {
-        setupSpectralAnalysis()
         setupVADHistory()
-    }
-    
-    deinit {
-        if let setup = fftSetup {
-            vDSP_destroy_fftsetup(setup)
-        }
-    }
-    
-    private func setupSpectralAnalysis() {
-        // Setup FFT for spectral analysis
-        let log2n = vDSP_Length(log2(Float(fftSize)))
-        fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2))
-        
-        // Create Hann window for spectral analysis
-        hannWindow = Array(0..<fftSize).map { n in
-            0.5 * (1.0 - cos(2.0 * Float.pi * Float(n) / Float(fftSize - 1)))
-        }
-        
-        print("EnhancedVAD: Spectral analysis setup complete (FFT size: \(fftSize))")
     }
     
     private func setupVADHistory() {
         // Initialize state history for hysteresis
         stateHistory = Array(repeating: false, count: config.hysteresisSamples / 100) // Rough estimation
-        print("EnhancedVAD: Initialized with config - Energy: \(config.energyThreshold), Spectral: \(config.spectralThreshold)")
+        print("EnhancedVAD: Initialized with RMS-only VAD - Energy threshold: \(config.energyThreshold)")
     }
     
     func processAudioChunk(_ samples: [Float]) -> VADResult {
         let timestamp = Date()
         
-        // 1. Energy-based VAD
+        // 1. RMS Energy-based VAD only
         let energyLevel = calculateRMSEnergy(samples)
-        let energyVAD = energyLevel > config.energyThreshold
+        let isSpeech = energyLevel > config.energyThreshold
         
-        // 2. Spectral-based VAD
-        let spectralActivity = calculateSpectralActivity(samples)
-        let spectralVAD = spectralActivity > config.spectralThreshold
+        // 2. Simple confidence based on energy level
+        let confidence = calculateConfidence(energyLevel: energyLevel)
         
-        // 3. Combined decision with weighted confidence
-        let isSpeech = energyVAD && spectralVAD
-        let confidence = calculateConfidence(energyLevel: energyLevel, spectralActivity: spectralActivity)
-        
-        // 4. Apply hysteresis and state management
+        // 3. Apply hysteresis and state management
         let finalDecision = applyHysteresis(isSpeech, confidence: confidence, timestamp: timestamp)
         
         let result = VADResult(
             isSpeech: finalDecision,
             confidence: confidence,
             energyLevel: energyLevel,
-            spectralActivity: spectralActivity,
             timestamp: timestamp
         )
         
@@ -128,7 +94,6 @@ class EnhancedVAD: ObservableObject {
         currentVADState = finalDecision
         currentConfidence = confidence
         currentEnergyLevel = energyLevel
-        currentSpectralActivity = spectralActivity
         
         // Store result for analysis
         vadResults.append(result)
@@ -145,33 +110,12 @@ class EnhancedVAD: ObservableObject {
         return rms
     }
     
-    private func calculateSpectralActivity(_ samples: [Float]) -> Float {
-        guard let fftSetup = fftSetup, samples.count >= fftSize else {
-            return 0.0
-        }
-        
-        // Take the first fftSize samples and apply window
-        let windowedSamples = zip(samples.prefix(fftSize), hannWindow).map { $0 * $1 }
-        
-        // Simplified spectral activity calculation using high-frequency energy
-        // This avoids complex FFT pointer management while still providing spectral info
-        let highFreqStart = windowedSamples.count / 4  // Rough high-frequency approximation
-        let highFreqEnergy = windowedSamples.suffix(from: highFreqStart).map { $0 * $0 }.reduce(0, +)
-        let totalEnergy = windowedSamples.map { $0 * $0 }.reduce(0, +)
-        
-        let spectralActivity = totalEnergy > 0 ? highFreqEnergy / totalEnergy : 0.0
-        
-        // Normalize and scale for speech detection
-        return min(1.0, spectralActivity * 2.0)  // Scale up for better sensitivity
-    }
-    
-    private func calculateConfidence(energyLevel: Float, spectralActivity: Float) -> Float {
-        // Weighted combination of energy and spectral confidence
-        let energyConfidence = min(1.0, energyLevel / (config.energyThreshold * 3.0))
-        let spectralConfidence = min(1.0, spectralActivity / config.spectralThreshold)
-        
-        // Weight spectral features more heavily for speech detection
-        return (energyConfidence * 0.3 + spectralConfidence * 0.7)
+    private func calculateConfidence(energyLevel: Float) -> Float {
+        // Simple confidence based on how much energy exceeds threshold
+        // Scale from threshold to 3x threshold for full confidence
+        let maxEnergyForFullConfidence = config.energyThreshold * 3.0
+        let confidence = min(1.0, energyLevel / maxEnergyForFullConfidence)
+        return confidence
     }
     
     private func applyHysteresis(_ rawDecision: Bool, confidence: Float, timestamp: Date) -> Bool {
@@ -181,17 +125,28 @@ class EnhancedVAD: ObservableObject {
             stateHistory.removeFirst()
         }
         
-        // Count recent speech decisions
-        let recentSpeechCount = stateHistory.suffix(5).filter { $0 }.count
+        // New asymmetric hysteresis strategy:
+        // Silence → Speech: IMMEDIATE (no hysteresis for quick response)
+        // Speech → Silence: HYSTERESIS (keep more context for model)
         
-        // Apply hysteresis logic
         let hysteresisDecision: Bool
         if currentState {
-            // Currently in speech - require strong evidence of silence to switch
-            hysteresisDecision = recentSpeechCount >= 2 || confidence > 0.4
+            // Currently in SPEECH - use hysteresis to avoid cutting off words
+            // Need sustained silence before switching to silence
+            let recentSpeechCount = stateHistory.suffix(8).filter { $0 }.count // 800ms window
+            hysteresisDecision = recentSpeechCount >= 2 || confidence > 0.3
+            
+            if !hysteresisDecision {
+                print("🔇 Speech→Silence: Sustained silence detected, switching to silence")
+            }
         } else {
-            // Currently in silence - require strong evidence of speech to switch
-            hysteresisDecision = recentSpeechCount >= 3 && confidence > 0.5
+            // Currently in SILENCE - immediate response to speech
+            // Any frame above threshold immediately triggers speech
+            hysteresisDecision = rawDecision && confidence > 0.3
+            
+            if hysteresisDecision {
+                print("🎤 Silence→Speech: Immediate speech detection, triggering inference")
+            }
         }
         
         // Update state and manage speech segments
