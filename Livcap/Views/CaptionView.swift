@@ -9,62 +9,110 @@ import SwiftUI
 struct CaptionView: View {
     
     @StateObject private var caption = CaptionViewModel()
+    @State private var isPinned = false
+    @State private var isHovering = false
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Simple scrollable caption display
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(caption.captionHistory) { entry in
-                            Text(entry.text)
-                                .font(.system(size: 22, weight: .medium, design: .rounded))
-                                .foregroundColor(.primary)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 6)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(entry.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(.quaternary.opacity(0.3))
-                                        .opacity(0.6)
-                                )
-                        }
+        ZStack {
+            // Transparent background with blur
+            Rectangle()
+                .fill(.clear)
+                .background(.ultraThinMaterial, in: Rectangle())
+            
+            VStack(spacing: 0) {
+                // Pin button - only visible when hovering
+                HStack {
+                    Spacer()
+                    
+                    Button(action: {
+                        togglePin()
+                    }) {
+                        Image(systemName: isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(isPinned ? .blue : .secondary)
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle()
+                                    .fill(.ultraThinMaterial)
+                                    .opacity(0.5)
+                                    .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+                            )
                     }
-                    .padding(.vertical, 16)
+                    .buttonStyle(PlainButtonStyle())
+                    .help(isPinned ? "Unpin from top (window will stay behind other apps)" : "Pin to top (window will stay in front of other apps)")
+                    .opacity(isHovering ? 1.0 : 0.0)
+                    .animation(.easeInOut(duration: 0.2), value: isHovering)
                 }
-                .onChange(of: caption.captionHistory.count) { oldValue, newValue in
-                    // Auto-scroll to the latest caption
-                    if let lastEntry = caption.captionHistory.last {
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            proxy.scrollTo(lastEntry.id, anchor: .bottom)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+                .background(
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.5)
+                )
+                
+                // Simple scrollable caption display
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(caption.captionHistory) { entry in
+                                Text(entry.text)
+                                    .font(.system(size: 22, weight: .medium, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 4)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .fill(.ultraThinMaterial)
+                                            .opacity(0.5)
+                                    )
+                                    .id(entry.id)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                    }
+                    .onChange(of: caption.captionHistory.count) { _, _ in
+                        if let lastEntry = caption.captionHistory.last {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                proxy.scrollTo(lastEntry.id, anchor: .bottom)
+                            }
                         }
                     }
                 }
             }
         }
-        .frame(minHeight: 100) // Allow resizing with minimum height
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.3), radius: 16, x: 0, y: 8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(.quaternary, lineWidth: 0.8)
-                )
-        )
+        .frame(minWidth: 400, minHeight: 100)
+        .onHover { hovering in
+            isHovering = hovering
+        }
         .onAppear {
-            // Automatically start recording when the view appears
+            // Start recording automatically
             if !caption.isRecording {
                 caption.toggleRecording()
             }
         }
         .onDisappear {
-            // Automatically stop recording when the view disappears
+            // Stop recording when window closes
             if caption.isRecording {
                 caption.toggleRecording()
             }
+        }
+    }
+    
+    private func togglePin() {
+        isPinned.toggle()
+        
+        guard let window = NSApplication.shared.windows.first else { return }
+        
+        if isPinned {
+            // Set window to always on top
+            window.level = .floating
+        } else {
+            // Set window to normal level
+            window.level = .normal
         }
     }
 }
@@ -72,13 +120,9 @@ struct CaptionView: View {
 #Preview("Light Mode") {
     CaptionView()
         .preferredColorScheme(.light)
-        .frame(width: 400, height: 150)
-        .background(Color.gray.opacity(0.1))
 }
 
 #Preview("Dark Mode") {
     CaptionView()
         .preferredColorScheme(.dark)
-        .frame(width: 400, height: 150)
-        .background(Color.black.opacity(0.8))
 }

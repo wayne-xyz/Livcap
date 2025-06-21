@@ -30,66 +30,44 @@ struct AppRouterView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 positionWindowAtBottomCenter()
             }
+            
+            // Configure window appearance to match content
+            configureWindowAppearance()
         }
     }
     
     private func positionWindowAtBottomCenter() {
         guard let window = NSApplication.shared.windows.first else { return }
         
-        // Get the currently focused screen (where the user is working)
+        // Get the focused screen (where mouse cursor is)
         let focusedScreen = getFocusedScreen()
         
-        // Calculate window dimensions
-        let windowWidth = focusedScreen.frame.width * 0.618 // Golden ratio
-        let windowHeight: CGFloat = 100 // Default height, but can be resized
+        // Calculate window position
+        let windowWidth = window.frame.width
+        let windowHeight = window.frame.height
         
-        // Calculate position on the focused screen
-        let x = focusedScreen.frame.minX + (focusedScreen.frame.width - windowWidth) / 2 // Center horizontally
+        // Center horizontally on the focused screen
+        let x = focusedScreen.frame.minX + (focusedScreen.frame.width - windowWidth) / 2
         
-        // Calculate Y position to avoid Dock overlap
+        // Position at bottom, just above Dock
         let y = calculateYPositionAboveDock(screen: focusedScreen, windowHeight: windowHeight)
         
-        // Set window frame
+        // Set window position
         let newFrame = NSRect(x: x, y: y, width: windowWidth, height: windowHeight)
         window.setFrame(newFrame, display: true, animate: true)
         
-        // Make sure window is on top and has proper level
+        // Set window level to floating for better visibility
         window.level = .floating
-        window.orderFront(nil)
         
-        // Ensure window appears on the correct space/desktop
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        
-        // Set minimum size constraints for resizable window
-        window.minSize = NSSize(width: 300, height: 100)
-        
-        // Enable resizing by setting the style mask
+        // Make window resizable
         window.styleMask.insert(.resizable)
-    }
-    
-    private func calculateYPositionAboveDock(screen: NSScreen, windowHeight: CGFloat) -> CGFloat {
-        // Get the visible frame (screen area excluding Dock and menu bar)
-        let visibleFrame = screen.visibleFrame
         
-        // Get the full screen frame
-        let fullFrame = screen.frame
-        
-        // Calculate Dock height by comparing full frame to visible frame
-        let dockHeight = fullFrame.height - visibleFrame.height
-        
-        // If Dock is visible on this screen (dockHeight > 0), position above it
-        if dockHeight > 0 {
-            // Position window above the Dock with a small gap
-            return visibleFrame.minY + 50 // 10px gap above Dock
-        } else {
-            // No Dock on this screen, position at bottom with small margin
-            return fullFrame.minY + 20
-        }
+        // Set minimum size
+        window.minSize = NSSize(width: 400, height: 100)
     }
     
     private func getFocusedScreen() -> NSScreen {
         // Get the screen where the mouse cursor is currently located
-        // This is a good approximation for the "focused" screen
         let mouseLocation = NSEvent.mouseLocation
         
         // Find the screen that contains the mouse cursor
@@ -101,6 +79,36 @@ struct AppRouterView: View {
         
         // Fallback to main screen if mouse is not on any screen
         return NSScreen.main ?? NSScreen.screens.first ?? NSScreen.main!
+    }
+    
+    private func calculateYPositionAboveDock(screen: NSScreen, windowHeight: CGFloat) -> CGFloat {
+        let fullFrame = screen.frame
+        let visibleFrame = screen.visibleFrame
+        
+        // Check if Dock is visible on this screen
+        let dockHeight = fullFrame.height - visibleFrame.height
+        
+        if dockHeight > 0 {
+            // Dock is visible, position above it
+            return visibleFrame.minY + 10
+        } else {
+            // No Dock visible, use bottom margin
+            return fullFrame.minY + 20
+        }
+    }
+    
+    private func configureWindowAppearance() {
+        guard let window = NSApplication.shared.windows.first else { return }
+        
+        // Make title bar transparent and match content background
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        
+        // Set window background to match content
+        window.backgroundColor = NSColor.white
+        window.backgroundColor = NSColor.init(cgColor: CGColor(gray: 0.95, alpha: 0.618))
+        
+
     }
 }
 
