@@ -1,6 +1,6 @@
 # Livcap
 
-
+Inspired by whisper-live using the overlap strategy. 
 
 ## Highlights:
 - Privacy first, local model, no cloud, no analytics, no ads. No need internet connection. Free and open source. 
