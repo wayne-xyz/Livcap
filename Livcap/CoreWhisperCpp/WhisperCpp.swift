@@ -68,6 +68,74 @@ actor WhisperCpp{
         return transcription
     }
     
+    func getDetailedTranscription() -> [WhisperSegmentData] {
+        var segments: [WhisperSegmentData] = []
+        
+        for segmentIndex in 0..<whisper_full_n_segments(context) {
+            let segmentText = String(cString: whisper_full_get_segment_text(context, segmentIndex))
+            let segmentStartTime = whisper_full_get_segment_t0(context, segmentIndex)
+            let segmentEndTime = whisper_full_get_segment_t1(context, segmentIndex)
+            
+            var tokens: [WhisperTokenData] = []
+            let tokenCount = whisper_full_n_tokens(context, segmentIndex)
+            
+            for tokenIndex in 0..<tokenCount {
+                let tokenText = String(cString: whisper_full_get_token_text(context, segmentIndex, tokenIndex))
+                let tokenProbability = whisper_full_get_token_p(context, segmentIndex, tokenIndex)
+                let tokenData = whisper_full_get_token_data(context, segmentIndex, tokenIndex)
+                
+                let whisperToken = WhisperTokenData(
+                    text: tokenText,
+                    probability: tokenProbability,
+                    logProbability: tokenData.plog,
+                    timestampProbability: tokenData.pt,
+                    startTime: segmentStartTime,
+                    endTime: segmentEndTime
+                )
+                tokens.append(whisperToken)
+            }
+            
+            let averageConfidence = tokens.isEmpty ? 0.0 : tokens.map(\.probability).reduce(0, +) / Float(tokens.count)
+            
+            let segment = WhisperSegmentData(
+                text: segmentText,
+                tokens: tokens,
+                averageConfidence: averageConfidence,
+                startTime: segmentStartTime,
+                endTime: segmentEndTime
+            )
+            segments.append(segment)
+        }
+        
+        return segments
+    }
+    
+    func getConfidenceFiltered(minConfidence: Float = 0.3) -> [WhisperSegmentData] {
+        let allSegments = getDetailedTranscription()
+        return allSegments.filter { $0.averageConfidence >= minConfidence }
+    }
+    
+    func getHighConfidenceText(minConfidence: Float = 0.5) -> String {
+        let segments = getConfidenceFiltered(minConfidence: minConfidence)
+        return segments.map(\.text).joined(separator: " ")
+    }
+    
+    func getWordLevelConfidence() -> [(word: String, confidence: Float)] {
+        let segments = getDetailedTranscription()
+        var wordConfidences: [(String, Float)] = []
+        
+        for segment in segments {
+            for token in segment.tokens {
+                let word = token.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !word.isEmpty && !word.hasPrefix("<") && !word.hasSuffix(">") {
+                    wordConfidences.append((word, token.probability))
+                }
+            }
+        }
+        
+        return wordConfidences
+    }
+    
     
     static func benchMemcpy(nThreads: Int32) async -> String {
         return String.init(cString: whisper_bench_memcpy_str(nThreads))

@@ -74,6 +74,23 @@ final class TranscriptionDisplayManager: ObservableObject {
         return captionHistory.count
     }
     
+    /// Gets high confidence captions only
+    func getHighConfidenceCaptions(minConfidence: Float = 0.7) -> [CaptionEntry] {
+        return captionHistory.filter { entry in
+            guard let confidence = entry.confidence else { return true }
+            return confidence >= minConfidence
+        }
+    }
+    
+    /// Gets the average confidence of recent captions
+    func getRecentConfidenceScore(lastN: Int = 5) -> Float {
+        let recentEntries = Array(captionHistory.suffix(lastN))
+        let confidences = recentEntries.compactMap(\.confidence)
+        
+        guard !confidences.isEmpty else { return 1.0 }
+        return confidences.reduce(0, +) / Float(confidences.count)
+    }
+    
     // MARK: - Private Methods
     
     private func reset() {
@@ -89,7 +106,10 @@ final class TranscriptionDisplayManager: ObservableObject {
     
     private func isValidTranscription(_ result: SimpleTranscriptionResult) -> Bool {
         let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmedText.isEmpty && trimmedText.count > 1
+        let hasValidText = !trimmedText.isEmpty && trimmedText.count > 1
+        let hasMinimumConfidence = result.overallConfidence >= minConfidenceThreshold
+        
+        return hasValidText && hasMinimumConfidence
     }
     
     private func processPendingTranscriptions() {
@@ -108,11 +128,15 @@ final class TranscriptionDisplayManager: ObservableObject {
         let entry = CaptionEntry(
             id: result.segmentID,
             text: result.text,
-            confidence: 1.0 // Placeholder for future confidence scoring
+            confidence: result.overallConfidence
         )
         
-        // Update current caption
-        currentCaption = result.text
+        // Update current caption with confidence indicator
+        if result.overallConfidence < 0.5 {
+            currentCaption = "\(result.text) (?)"  // Low confidence indicator
+        } else {
+            currentCaption = result.text
+        }
         
         // Add to history
         captionHistory.append(entry)
@@ -125,7 +149,7 @@ final class TranscriptionDisplayManager: ObservableObject {
         // Update status
         displayStatus = .liveCaptioning
         
-        print("TranscriptionDisplayManager: Added caption: \(result.text)")
+        print("TranscriptionDisplayManager: Added caption: \(result.text) (confidence: \(String(format: "%.3f", result.overallConfidence)))")
     }
     
     // MARK: - Future Overlapping Inference Methods
