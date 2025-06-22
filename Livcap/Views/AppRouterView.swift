@@ -13,7 +13,7 @@ struct AppRouterView: View {
     @State private var currentView: AppView = .original
     
     enum AppView {
-        case original, phase1, phase2
+        case original, phase1, phase2, phase3
     }
 
     var body: some View {
@@ -27,6 +27,7 @@ struct AppRouterView: View {
                                 Menu("Switch View") {
                                     Button("Original View") { currentView = .original }
                                     Button("Phase 2 Test") { currentView = .phase2 }
+                                    Button("Phase 3 Test") { currentView = .phase3 }
                                 }
                             }
                         }
@@ -37,6 +38,18 @@ struct AppRouterView: View {
                                 Menu("Switch View") {
                                     Button("Original View") { currentView = .original }
                                     Button("Phase 1 Test") { currentView = .phase1 }
+                                    Button("Phase 3 Test") { currentView = .phase3 }
+                                }
+                            }
+                        }
+                case .phase3:
+                    WhisperLiveTestView()
+                        .toolbar {
+                            ToolbarItem(placement: .primaryAction) {
+                                Menu("Switch View") {
+                                    Button("Original View") { currentView = .original }
+                                    Button("Phase 1 Test") { currentView = .phase1 }
+                                    Button("Phase 2 Test") { currentView = .phase2 }
                                 }
                             }
                         }
@@ -47,6 +60,7 @@ struct AppRouterView: View {
                                 Menu("Test Views") {
                                     Button("Phase 1 Test") { currentView = .phase1 }
                                     Button("Phase 2 Test") { currentView = .phase2 }
+                                    Button("Phase 3 Test") { currentView = .phase3 }
                                 }
                             }
                         }
