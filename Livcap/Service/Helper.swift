@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import SwiftUICore
+import SwiftUI
 
 func debugLog(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
     #if DEBUG

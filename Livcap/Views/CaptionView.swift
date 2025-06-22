@@ -12,7 +12,7 @@ struct CaptionView: View {
     @State private var isPinned = false
     @State private var isHovering = false
     
-    private let opacityLevel: Double=0.75
+    private let opacityLevel: Double = 0.75
     
     var body: some View {
         ZStack {
@@ -42,19 +42,35 @@ struct CaptionView: View {
                             )
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .help(isPinned ? "Unpin from top" : "Pin to top ")
+                    .help(isPinned ? "Unpin from top" : "Pin to top")
                     .opacity(isHovering ? 1.0 : 0.0)
                     .animation(.easeInOut(duration: 0.2), value: isHovering)
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
-
                 
                 // Simple scrollable caption display
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 8) {
+                            // Current transcription (real-time)
+                            if !caption.currentTranscription.isEmpty {
+                                Text(caption.currentTranscription)
+                                    .font(.system(size: 22, weight: .medium, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 4)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .fill(Color.clear)
+                                            .opacity(opacityLevel)
+                                    )
+                                    .id("current")
+                            }
+                            
+                            // Caption history
                             ForEach(caption.captionHistory) { entry in
                                 Text(entry.text)
                                     .font(.system(size: 22, weight: .medium, design: .rounded))
@@ -72,10 +88,6 @@ struct CaptionView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)
-                        
-                    
-                        
-                        
                     }
                     .onChange(of: caption.captionHistory.count) { _, _ in
                         if let lastEntry = caption.captionHistory.last {
@@ -84,9 +96,13 @@ struct CaptionView: View {
                             }
                         }
                     }
-                    
-
-                    
+                    .onChange(of: caption.currentTranscription) { _, _ in
+                        if !caption.currentTranscription.isEmpty {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                proxy.scrollTo("current", anchor: .bottom)
+                            }
+                        }
+                    }
                 }
             }
         }
