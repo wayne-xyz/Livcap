@@ -101,7 +101,7 @@ struct AppRouterView: View {
         guard let window = NSApplication.shared.windows.first else { return }
         
         // Hide the titlebar completely
-        window.styleMask = [.borderless, .resizable]
+        window.styleMask = [.borderless, .resizable,.miniaturizable]
         
         // Make title bar transparent and match content background
         window.titlebarAppearsTransparent = true

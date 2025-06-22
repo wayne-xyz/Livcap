@@ -11,6 +11,7 @@ struct CaptionView: View {
     @StateObject private var caption = CaptionViewModel()
     @State private var isPinned = false
     @State private var isHovering = false
+    @State private var showWindowControls = false
     
     private let opacityLevel: Double = 0.7
     
@@ -23,16 +24,20 @@ struct CaptionView: View {
                 .opacity(opacityLevel)
             
             VStack(spacing: 0) {
-                // Pin button - only visible when hovering
+                // Top bar with window controls and pin button
                 HStack {
+                    // Window control buttons (left side)
+                    WindowControlButtons(isVisible: $showWindowControls)
+                    
                     Spacer()
                     
+                    // Pin button (right side) - only visible when hovering
                     Button(action: {
                         togglePin()
                     }) {
                         Image(systemName: isPinned ? "pin.fill" : "pin")
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(isPinned ? .blue : .secondary)
+                            .foregroundColor(isPinned ? .primary : .secondary)
                             .frame(width: 32, height: 32)
                             .background(
                                 Circle()
@@ -47,7 +52,7 @@ struct CaptionView: View {
                     .animation(.easeInOut(duration: 0.2), value: isHovering)
                 }
                 .padding(.horizontal, 12)
-                .padding(.top, 8)
+                .padding(.top, 6)
                 .padding(.bottom, 4)
                 
                 // Simple scrollable caption display
@@ -109,6 +114,7 @@ struct CaptionView: View {
         .frame(minWidth: 400, minHeight: 100)
         .onHover { hovering in
             isHovering = hovering
+            showWindowControls = hovering
         }
         .onAppear {
             // Start recording automatically
