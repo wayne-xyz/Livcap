@@ -12,12 +12,12 @@ struct CaptionView: View {
     @State private var isPinned = false
     @State private var isHovering = false
     
-    private let opacityLevel: Double = 0.75
+    private let opacityLevel: Double = 0.7
     
     var body: some View {
         ZStack {
             // Transparent background with blur
-            Rectangle()
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.backgroundColor)
                 .background(.ultraThinMaterial, in: Rectangle())
                 .opacity(opacityLevel)

@@ -100,11 +100,30 @@ struct AppRouterView: View {
     private func configureWindowAppearance() {
         guard let window = NSApplication.shared.windows.first else { return }
         
+        // Hide the titlebar completely
+        window.styleMask = [.borderless, .resizable]
+        
         // Make title bar transparent and match content background
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
+        
         // Set window background to match content
         window.backgroundColor = NSColor(Color.backgroundColor).withAlphaComponent(0.75)
+        
+        // Make the window movable by dragging anywhere on it
+        window.isMovableByWindowBackground = true
+        
+        // Add rounded corners to the window using layer
+        window.isOpaque = false
+        window.hasShadow = false
+        window.backgroundColor = NSColor.clear
+        
+        // Set the window's content view to have rounded corners
+        if let contentView = window.contentView {
+            contentView.wantsLayer = true
+            contentView.layer?.cornerRadius = 8
+            contentView.layer?.masksToBounds = true
+        }
     }
 }
 
