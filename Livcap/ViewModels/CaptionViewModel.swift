@@ -9,6 +9,8 @@ import Foundation
 import Combine
 import Speech
 import AVFoundation
+import Accelerate
+
 
 /// CaptionViewModel for real-time speech recognition using SFSpeechRecognizer
 final class CaptionViewModel: ObservableObject {
@@ -28,6 +30,17 @@ final class CaptionViewModel: ObservableObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     
     private var cancellables = Set<AnyCancellable>()
+    
+    // MARK: - VAD and Sentence Segmentation Properties
+    
+    private let vadProcessor = VADProcessor()
+    private var currentSpeechState: Bool = false
+    private var silenceStartTime: Date = Date()
+    private let sentenceTimeoutDuration: TimeInterval = 2.0 // 2 seconds of silence to end sentence
+    
+    // Track processed text to avoid duplication
+    private var processedTextLength: Int = 0
+    private var fullTranscriptionText: String = ""
     
     // MARK: - Initialization
     
@@ -105,6 +118,9 @@ final class CaptionViewModel: ObservableObject {
         // Install tap on input node
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
+            
+            // Always process audio through VAD for sentence segmentation
+            self?.processAudioBufferForVAD(buffer)
         }
         
         // Start recognition task
@@ -121,15 +137,21 @@ final class CaptionViewModel: ObservableObject {
             if let result = result {
                 let transcription = result.bestTranscription.formattedString
                 
+                
                 DispatchQueue.main.async {
-                    self.currentTranscription = transcription
+                    // Store the full transcription from SFSpeechRecognizer
+                    let previousFullLength = self.fullTranscriptionText.count
+                    self.fullTranscriptionText = transcription
                     
-                    if result.isFinal {
-                        // Add to history when transcription is final
-                        if !transcription.isEmpty {
-                            self.addToHistory(transcription)
+                    // Extract only the NEW part that hasn't been processed yet
+                    let newPart = self.extractNewTranscriptionPart(from: transcription)
+                    self.currentTranscription = newPart
+                    
+                    // If new text was added, reset silence timer if we're currently in silence
+                    if transcription.count > previousFullLength {
+                        if !self.currentSpeechState {
+                            self.silenceStartTime = Date()
                         }
-                        self.currentTranscription = ""
                     }
                 }
             }
@@ -173,6 +195,12 @@ final class CaptionViewModel: ObservableObject {
             addToHistory(currentTranscription)
             currentTranscription = ""
         }
+        
+        // Reset VAD state and text tracking
+        vadProcessor.reset()
+        currentSpeechState = false
+        processedTextLength = 0
+        fullTranscriptionText = ""
     }
     
     private func addToHistory(_ text: String) {
@@ -192,5 +220,80 @@ final class CaptionViewModel: ObservableObject {
     func clearCaptions() {
         captionHistory.removeAll()
         currentTranscription = ""
+    }
+    
+    // MARK: - VAD Processing for Sentence Segmentation
+    
+    private func processAudioBufferForVAD(_ buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData else { return }
+        
+        let frameCount = Int(buffer.frameLength)
+        let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
+        
+        let isSpeech = vadProcessor.processAudioChunk(samples)
+        
+        // Detect speech state transitions
+        if isSpeech != currentSpeechState {
+            if isSpeech {
+                // Silence to speech transition
+                onSpeechStart()
+            } else {
+                // Speech to silence transition
+                onSpeechEnd()
+            }
+            currentSpeechState = isSpeech
+        }
+        
+        // Check for sentence timeout during silence
+        if !isSpeech && !currentTranscription.isEmpty {
+            let silenceDuration = Date().timeIntervalSince(silenceStartTime)
+            if silenceDuration >= sentenceTimeoutDuration {
+                finalizeSentence()
+            }
+        }
+    }
+    
+    private func onSpeechStart() {
+        debugLog("Speech detected - continuing sentence")
+        // Speech started, no immediate action needed
+        // Just continue building the current transcription
+    }
+    
+    private func onSpeechEnd() {
+        // Speech ended, start silence timer
+        silenceStartTime = Date()
+        debugLog("Silence detected - starting sentence timeout")
+    }
+    
+    private func finalizeSentence() {
+        DispatchQueue.main.async {
+            if !self.currentTranscription.isEmpty {
+                debugLog("Sentence timeout reached - finalizing: \(self.currentTranscription)")
+                
+                // Add the current sentence part to history
+                self.addToHistory(self.currentTranscription)
+                
+                // Update processed length to include what we just added
+                self.processedTextLength = self.fullTranscriptionText.count
+                
+                // Clear current transcription for next sentence
+                self.currentTranscription = ""
+                
+                // Reset silence timer
+                self.silenceStartTime = Date()
+            }
+        }
+    }
+    
+    // MARK: - Text Processing Helpers
+    
+    private func extractNewTranscriptionPart(from fullText: String) -> String {
+        // Extract only the part that hasn't been processed yet
+        if fullText.count > processedTextLength {
+            let startIndex = fullText.index(fullText.startIndex, offsetBy: processedTextLength)
+            let newPart = String(fullText[startIndex...])
+            return newPart.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return ""
     }
 }

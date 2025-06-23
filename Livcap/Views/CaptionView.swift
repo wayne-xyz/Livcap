@@ -66,24 +66,7 @@ struct CaptionView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        // Current transcription (real-time)
-                        if !caption.currentTranscription.isEmpty {
-                            Text(caption.currentTranscription)
-                                .font(.system(size: 22, weight: .medium, design: .rounded))
-                                .foregroundColor(.primary)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 4)
-                                .lineSpacing(7)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Color.clear)
-                                        .opacity(opacityLevel)
-                                )
-                                .id("current")
-                        }
-                        
-                        // Caption history
+                        // Caption history (older sentences at top)
                         ForEach(caption.captionHistory) { entry in
                             Text(entry.text)
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
@@ -99,18 +82,39 @@ struct CaptionView: View {
                                 )
                                 .id(entry.id)
                         }
+                        
+                        // Current transcription (real-time at bottom)
+                        if !caption.currentTranscription.isEmpty {
+                            Text(caption.currentTranscription+"...")
+                                .font(.system(size: 22, weight: .medium, design: .rounded))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 4)
+                                .lineSpacing(7)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+//                                .background(
+//                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+//                                        .fill(Color.accentColor.opacity(0.1))
+//                                        .opacity(opacityLevel)
+//                                )
+                                .id("current")
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
                 }
                 .onChange(of: caption.captionHistory.count) { _, _ in
-                    if let lastEntry = caption.captionHistory.last {
-                        withAnimation(.easeInOut(duration: 0.3)) {
+                    // When new sentence is added to history, scroll to bottom to show current
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        if !caption.currentTranscription.isEmpty {
+                            proxy.scrollTo("current", anchor: .bottom)
+                        } else if let lastEntry = caption.captionHistory.last {
                             proxy.scrollTo(lastEntry.id, anchor: .bottom)
                         }
                     }
                 }
                 .onChange(of: caption.currentTranscription) { _, _ in
+                    // When current transcription updates, scroll to show it
                     if !caption.currentTranscription.isEmpty {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             proxy.scrollTo("current", anchor: .bottom)
@@ -123,7 +127,7 @@ struct CaptionView: View {
             
             // Pin button (right side)
             pinButton()
-                .frame(width: 80) // Fixed width for pin button (same as control buttons)
+                .frame(width: 80) // Fixed width for pin button
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
@@ -150,24 +154,7 @@ struct CaptionView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        // Current transcription (real-time)
-                        if !caption.currentTranscription.isEmpty {
-                            Text(caption.currentTranscription)
-                                .font(.system(size: 22, weight: .medium, design: .rounded))
-                                .foregroundColor(.primary)
-                                .padding(.horizontal, 20)
-                                .lineSpacing(7)
-                                .padding(.vertical, 4)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Color.clear)
-                                        .opacity(opacityLevel)
-                                )
-                                .id("current")
-                        }
-                        
-                        // Caption history
+                        // Caption history (older sentences at top)
                         ForEach(caption.captionHistory) { entry in
                             Text(entry.text)
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
@@ -183,18 +170,39 @@ struct CaptionView: View {
                                 )
                                 .id(entry.id)
                         }
+                        
+                        // Current transcription (real-time at bottom)
+                        if !caption.currentTranscription.isEmpty {
+                            Text(caption.currentTranscription+"...")
+                                .font(.system(size: 22, weight: .medium, design: .rounded))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 20)
+                                .lineSpacing(7)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+//                                .background(
+//                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+//                                        .fill(Color.accentColor.opacity(0.1))
+//                                        .opacity(opacityLevel)
+//                                )
+                                .id("current")
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
                 }
                 .onChange(of: caption.captionHistory.count) { _, _ in
-                    if let lastEntry = caption.captionHistory.last {
-                        withAnimation(.easeInOut(duration: 0.3)) {
+                    // When new sentence is added to history, scroll to bottom to show current
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        if !caption.currentTranscription.isEmpty {
+                            proxy.scrollTo("current", anchor: .bottom)
+                        } else if let lastEntry = caption.captionHistory.last {
                             proxy.scrollTo(lastEntry.id, anchor: .bottom)
                         }
                     }
                 }
                 .onChange(of: caption.currentTranscription) { _, _ in
+                    // When current transcription updates, scroll to show it
                     if !caption.currentTranscription.isEmpty {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             proxy.scrollTo("current", anchor: .bottom)
@@ -229,6 +237,7 @@ struct CaptionView: View {
         .opacity(isHovering ? 1.0 : 0.0)
         .animation(.easeInOut(duration: 0.2), value: isHovering)
     }
+    
     
     private func togglePin() {
         isPinned.toggle()
@@ -267,13 +276,13 @@ struct CaptionView: View {
 
 #Preview("Light Mode - Compact Layout") {
     CaptionViewPreview(isHovering: true)
-        .frame(height: 80)
+        .frame(height: 45)
         .preferredColorScheme(.light)
 }
 
 #Preview("Dark Mode - Compact Layout") {
     CaptionViewPreview(isHovering: true)
-        .frame(height: 80)
+        .frame(height: 45)
         .preferredColorScheme(.dark)
 }
 
@@ -354,7 +363,7 @@ struct CaptionViewPreview: View {
             
             // Pin button (right side)
             previewPinButton()
-                .frame(width: 80) // Fixed width for pin button (same as control buttons)
+                .frame(width: 80) // Fixed width for pin button
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
@@ -438,4 +447,5 @@ struct CaptionViewPreview: View {
         .opacity(isHovering ? 1.0 : 0.0)
         .animation(.easeInOut(duration: 0.2), value: isHovering)
     }
+    
 }
