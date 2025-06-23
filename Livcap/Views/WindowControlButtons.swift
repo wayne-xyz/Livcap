@@ -144,17 +144,30 @@ struct WindowControlButtons: View {
     }
 }
 
-#Preview("Light") {
+#Preview("Light Mode - Visible") {
     WindowControlButtons(isVisible: .constant(true))
         .frame(width: 200, height: 100)
-
+        .background(Color.gray.opacity(0.2))
         .preferredColorScheme(.light)
-    
 }
 
-#Preview("Dark") {
+#Preview("Dark Mode - Visible") {
     WindowControlButtons(isVisible: .constant(true))
         .frame(width: 200, height: 100)
+        .background(Color.gray.opacity(0.2))
+        .preferredColorScheme(.dark)
+}
 
+#Preview("Light Mode - Hidden") {
+    WindowControlButtons(isVisible: .constant(false))
+        .frame(width: 200, height: 100)
+        .background(Color.gray.opacity(0.2))
+        .preferredColorScheme(.light)
+}
+
+#Preview("Dark Mode - Hidden") {
+    WindowControlButtons(isVisible: .constant(false))
+        .frame(width: 200, height: 100)
+        .background(Color.gray.opacity(0.2))
         .preferredColorScheme(.dark)
 }
