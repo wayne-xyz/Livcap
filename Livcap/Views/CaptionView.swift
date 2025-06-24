@@ -39,12 +39,6 @@ struct CaptionView: View {
             isHovering = hovering
             showWindowControls = hovering
         }
-        .onAppear {
-            // Start recording automatically
-            if !caption.isRecording {
-                caption.toggleRecording()
-            }
-        }
         .onDisappear {
             // Stop recording when window closes
             if caption.isRecording {
@@ -62,7 +56,7 @@ struct CaptionView: View {
             WindowControlButtons(isVisible: $showWindowControls)
                 .frame(width: 80) // Fixed width for buttons
             
-            // Centered content area - same scrollable structure as expanded layout
+            // Centered content area with auto-scroll
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
@@ -80,7 +74,6 @@ struct CaptionView: View {
                                         .fill(Color.clear)
                                         .opacity(opacityLevel)
                                 )
-                                .id(entry.id)
                         }
                         
                         // Current transcription (real-time at bottom)
@@ -92,32 +85,26 @@ struct CaptionView: View {
                                 .padding(.vertical, 4)
                                 .lineSpacing(7)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-//                                .background(
-//                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-//                                        .fill(Color.accentColor.opacity(0.1))
-//                                        .opacity(opacityLevel)
-//                                )
-                                .id("current")
+                                .id("currentTranscription")
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
                 }
-                .onChange(of: caption.captionHistory.count) { _, _ in
-                    // When new sentence is added to history, scroll to bottom to show current
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        if !caption.currentTranscription.isEmpty {
-                            proxy.scrollTo("current", anchor: .bottom)
-                        } else if let lastEntry = caption.captionHistory.last {
-                            proxy.scrollTo(lastEntry.id, anchor: .bottom)
+                .onChange(of: caption.currentTranscription) {
+                    if !caption.currentTranscription.isEmpty {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            proxy.scrollTo("currentTranscription", anchor: .bottom)
                         }
                     }
                 }
-                .onChange(of: caption.currentTranscription) { _, _ in
-                    // When current transcription updates, scroll to show it
-                    if !caption.currentTranscription.isEmpty {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            proxy.scrollTo("current", anchor: .bottom)
+                .onChange(of: caption.captionHistory.count) {
+                    // Auto-scroll when new caption is added
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if let lastEntry = caption.captionHistory.last {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                proxy.scrollTo(lastEntry.id, anchor: .bottom)
+                            }
                         }
                     }
                 }
@@ -125,9 +112,12 @@ struct CaptionView: View {
             .padding(.horizontal, 20) // Equal margins on both sides
 
             
-            // Pin button (right side)
-            pinButton()
-                .frame(width: 80) // Fixed width for pin button
+            // Right side buttons: mic and pin
+            HStack(spacing: 8) {
+                micToggleButton()
+                pinButton()
+            }
+            .frame(width: 80) // Fixed width for right buttons
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
@@ -143,14 +133,17 @@ struct CaptionView: View {
                 
                 Spacer()
                 
-                // Pin button (right side)
-                pinButton()
+                // Right side buttons: mic and pin
+                HStack(spacing: 8) {
+                    micToggleButton()
+                    pinButton()
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 0)
             .frame(height: 50)
             
-            // Main content area - ScrollView with speech recognition content (centered)
+            // Main content area with auto-scroll
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
@@ -168,7 +161,6 @@ struct CaptionView: View {
                                         .fill(Color.clear)
                                         .opacity(opacityLevel)
                                 )
-                                .id(entry.id)
                         }
                         
                         // Current transcription (real-time at bottom)
@@ -180,32 +172,26 @@ struct CaptionView: View {
                                 .lineSpacing(7)
                                 .padding(.vertical, 4)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-//                                .background(
-//                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-//                                        .fill(Color.accentColor.opacity(0.1))
-//                                        .opacity(opacityLevel)
-//                                )
-                                .id("current")
+                                .id("currentTranscription")
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
                 }
-                .onChange(of: caption.captionHistory.count) { _, _ in
-                    // When new sentence is added to history, scroll to bottom to show current
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        if !caption.currentTranscription.isEmpty {
-                            proxy.scrollTo("current", anchor: .bottom)
-                        } else if let lastEntry = caption.captionHistory.last {
-                            proxy.scrollTo(lastEntry.id, anchor: .bottom)
+                .onChange(of: caption.currentTranscription) {
+                    if !caption.currentTranscription.isEmpty {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            proxy.scrollTo("currentTranscription", anchor: .bottom)
                         }
                     }
                 }
-                .onChange(of: caption.currentTranscription) { _, _ in
-                    // When current transcription updates, scroll to show it
-                    if !caption.currentTranscription.isEmpty {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            proxy.scrollTo("current", anchor: .bottom)
+                .onChange(of: caption.captionHistory.count) {
+                    // Auto-scroll when new caption is added
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if let lastEntry = caption.captionHistory.last {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                proxy.scrollTo(lastEntry.id, anchor: .bottom)
+                            }
                         }
                     }
                 }
@@ -238,6 +224,28 @@ struct CaptionView: View {
         .animation(.easeInOut(duration: 0.2), value: isHovering)
     }
     
+    @ViewBuilder
+    private func micToggleButton() -> some View {
+        Button(action: {
+            caption.toggleRecording()
+        }) {
+            Image(systemName: caption.isRecording ? "mic.fill" : "mic.slash")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(caption.isRecording ? .primary : .secondary)
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.5)
+                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .help(caption.isRecording ? "Stop recording" : "Start recording")
+        .opacity(isHovering ? 1.0 : 0.0)
+        .animation(.easeInOut(duration: 0.2), value: isHovering)
+    }
+    
     
     private func togglePin() {
         isPinned.toggle()
@@ -262,190 +270,4 @@ struct CaptionView: View {
 #Preview("Dark Mode") {
     CaptionView()
         .preferredColorScheme(.dark)
-}
-
-#Preview("Light Mode - Hover State") {
-    CaptionViewPreview(isHovering: true)
-        .preferredColorScheme(.light)
-}
-
-#Preview("Dark Mode - Hover State") {
-    CaptionViewPreview(isHovering: true)
-        .preferredColorScheme(.dark)
-}
-
-#Preview("Light Mode - Compact Layout") {
-    CaptionViewPreview(isHovering: true)
-        .frame(height: 45)
-        .preferredColorScheme(.light)
-}
-
-#Preview("Dark Mode - Compact Layout") {
-    CaptionViewPreview(isHovering: true)
-        .frame(height: 45)
-        .preferredColorScheme(.dark)
-}
-
-// MARK: - Preview Helper
-
-struct CaptionViewPreview: View {
-    let isHovering: Bool
-    
-    @StateObject private var caption = CaptionViewModel()
-    @State private var isPinned = false
-    
-    private let opacityLevel: Double = 0.7
-    
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Transparent background with blur
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.backgroundColor)
-                    .background(.ultraThinMaterial, in: Rectangle())
-                    .opacity(opacityLevel)
-                
-                // Adaptive layout based on window height
-                if geometry.size.height <= 100 {
-                    // Small height: Single row layout
-                    compactPreviewLayout(geometry: geometry)
-                } else {
-                    // Larger height: Traditional layout
-                    expandedPreviewLayout(geometry: geometry)
-                }
-            }
-        }
-        .frame(minWidth: 400, minHeight: 200)
-    }
-    
-    @ViewBuilder
-    private func compactPreviewLayout(geometry: GeometryProxy) -> some View {
-        HStack(spacing: 0) {
-            // Window control buttons (left side)
-            WindowControlButtons(isVisible: .constant(isHovering))
-                .frame(width: 80) // Fixed width for buttons
-            
-            // Centered content area - same scrollable structure as expanded layout
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    // Sample current transcription
-                    Text("This is a live transcription example...")
-                        .font(.system(size: 22, weight: .medium, design: .rounded))
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.clear)
-                                .opacity(opacityLevel)
-                        )
-                    
-                    // Sample caption history
-                    ForEach(0..<3, id: \.self) { index in
-                        Text("This is caption history item \(index + 1). It shows how the transcribed text appears in the interface.")
-                            .font(.system(size: 22, weight: .medium, design: .rounded))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color.clear)
-                                    .opacity(opacityLevel)
-                            )
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
-            }
-            .padding(.horizontal, 20) // Equal margins on both sides
-            
-            // Pin button (right side)
-            previewPinButton()
-                .frame(width: 80) // Fixed width for pin button
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 6)
-    }
-    
-    @ViewBuilder
-    private func expandedPreviewLayout(geometry: GeometryProxy) -> some View {
-        VStack(spacing: 0) {
-            // Top section with window controls and pin button
-            HStack {
-                // Window control buttons (left side)
-                WindowControlButtons(isVisible: .constant(isHovering))
-                
-                Spacer()
-                
-                // Pin button (right side)
-                previewPinButton()
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 0)
-            .frame(height: 50)
-            
-            // Main content area (centered)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    // Sample current transcription
-                    Text("This is a live transcription example...")
-                        .font(.system(size: 22, weight: .medium, design: .rounded))
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.clear)
-                                .opacity(opacityLevel)
-                        )
-                    
-                    // Sample caption history
-                    ForEach(0..<3, id: \.self) { index in
-                        Text("This is caption history item \(index + 1). It shows how the transcribed text appears in the interface.")
-                            .font(.system(size: 22, weight: .medium, design: .rounded))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color.clear)
-                                    .opacity(opacityLevel)
-                            )
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
-            }
-            .padding(.horizontal, 20) // Equal margins on both sides for centering
-            .padding(.bottom, 20)
-
-        }
-    }
-    
-    @ViewBuilder
-    private func previewPinButton() -> some View {
-        Button(action: {
-            isPinned.toggle()
-        }) {
-            Image(systemName: isPinned ? "pin.fill" : "pin")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isPinned ? .primary : .secondary)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.5)
-                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .help(isPinned ? "Unpin from top" : "Pin to top")
-        .opacity(isHovering ? 1.0 : 0.0)
-        .animation(.easeInOut(duration: 0.2), value: isHovering)
-    }
-    
 }

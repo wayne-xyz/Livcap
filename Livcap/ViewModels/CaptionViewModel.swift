@@ -136,7 +136,7 @@ final class CaptionViewModel: ObservableObject {
             
             if let result = result {
                 let transcription = result.bestTranscription.formattedString
-                
+                print("transcription result: \(transcription)")
                 
                 DispatchQueue.main.async {
                     // Store the full transcription from SFSpeechRecognizer

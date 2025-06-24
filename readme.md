@@ -12,6 +12,8 @@ Inspired by whisper-live using the overlap strategy.
 
 # Development Introduction
 
+## Permission issue:
+`tccutil reset All com.xxx.xx`
 
 
 ## Current Implementation: Three Real-Time Transcription Approaches

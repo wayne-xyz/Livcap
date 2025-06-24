@@ -25,13 +25,13 @@ struct LivcapApp: App {
         .defaultSize(width: getGoldenRatioWidth(), height: 100)
         .defaultPosition(.bottom)
         .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands {
             // Remove default menu items for cleaner experience
             CommandGroup(replacing: .newItem) { }
             CommandGroup(replacing: .appInfo) { }
             CommandGroup(replacing: .systemServices) { }
         }
-        .windowToolbarStyle(.unified)
     }
     
     private func getGoldenRatioWidth() -> CGFloat {
