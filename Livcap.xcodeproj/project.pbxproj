@@ -466,8 +466,8 @@
 				INFOPLIST_FILE = Livcap/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Livcap requires microphone access to show live caption";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Livcap uses speech recognition to convert your voice into text.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs access to your microphone to provide real-time speech-to-text captions.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your speech to text for live captions.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -498,8 +498,8 @@
 				INFOPLIST_FILE = Livcap/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Livcap requires microphone access to show live caption";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Livcap uses speech recognition to convert your voice into text.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs access to your microphone to provide real-time speech-to-text captions.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your speech to text for live captions.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
