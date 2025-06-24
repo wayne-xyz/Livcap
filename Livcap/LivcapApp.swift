@@ -20,6 +20,10 @@ struct LivcapApp: App {
     var body: some Scene {
         WindowGroup {
             AppRouterView()
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
+                    // Terminate app when window closes
+                    NSApplication.shared.terminate(nil)
+                }
         }
         .windowResizability(.contentSize)
         .defaultSize(width: getGoldenRatioWidth(), height: 100)
