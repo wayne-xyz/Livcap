@@ -10,10 +10,6 @@ import Accelerate
 
 
 
-// Samples , Frames, chunks buffers,
-// V1. 1stage with 512ms 2 frame longs silence dtection then to inference , only
-// Sp,Sp,Sp,Si,Sp,Sp,   or Sp, Sp, Sp,Si,Si,Si... (end of the chunk 2 frame 512ms of silence , then conclude sentence or pharse )
-
 /// `AudioManager` handles microphone input and audio processing for real-time transcription **on macOS**.
 ///
 /// This class configures an audio engine to capture audio from the system's default input device,
@@ -22,7 +18,7 @@ import Accelerate
 ///
 ///
 ///
-final class AudioManager: ObservableObject {
+final class MicAudioManager: ObservableObject {
     // configuration constatn
     private let frameBufferSize: Int = 4800 // 100ms = 4800/48k float32 , a frame buffer is 4800sample.
     private let downSampleRate: Double = 16000.0  // conver the 48k to 16k 

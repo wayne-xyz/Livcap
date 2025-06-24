@@ -43,6 +43,7 @@ final class CaptionViewModel: ObservableObject {
     private var systemAudioStreamTask: Task<Void, Never>?
     private var mixedAudioStreamTask: Task<Void, Never>?
     
+    
     // MARK: - VAD and Sentence Segmentation Properties
     
     private let vadProcessor = VADProcessor()
@@ -101,14 +102,6 @@ final class CaptionViewModel: ObservableObject {
     
     // MARK: - Main control functions
     
-    func toggleRecording() {
-        if isRecording {
-            stopRecording()
-        } else {
-            startRecording()
-        }
-    }
-    
     func toggleMicrophone() {
         logger.info("🎤 TOGGLE MICROPHONE: \(self.isMicrophoneEnabled) -> \(!self.isMicrophoneEnabled)")
         
@@ -117,6 +110,9 @@ final class CaptionViewModel: ObservableObject {
         } else {
             startMicrophone()
         }
+        
+        // Auto-manage speech recognition based on active sources
+        manageRecordingState()
     }
     
     func toggleSystemAudio() {
@@ -126,6 +122,21 @@ final class CaptionViewModel: ObservableObject {
             stopSystemAudio()
         } else {
             startSystemAudio()
+        }
+        
+        // Auto-manage speech recognition based on active sources
+        manageRecordingState()
+    }
+    
+    // MARK: - Auto Speech Recognition Management
+    
+    private func manageRecordingState() {
+        let shouldBeRecording = isMicrophoneEnabled || isSystemAudioEnabled
+        
+        if shouldBeRecording && !isRecording {
+            startRecording()
+        } else if !shouldBeRecording && isRecording {
+            stopRecording()
         }
     }
     
@@ -195,7 +206,13 @@ final class CaptionViewModel: ObservableObject {
         currentTranscription = ""
         frameCounter = 0
         
-        // Start any enabled audio sources
+        // Start system audio processing if enabled
+        if isSystemAudioEnabled {
+            startSystemAudioProcessing()
+        }
+        
+        // Mixed audio stream is only needed for complex mixing scenarios
+        // For now, we process sources independently
         if isMicrophoneEnabled || isSystemAudioEnabled {
             startMixedAudioStream()
         }
@@ -207,6 +224,11 @@ final class CaptionViewModel: ObservableObject {
         logger.info("⏹️ STOPPING SPEECH RECOGNITION ENGINE")
         
         guard isRecording else { return }
+        
+        // Stop system audio processing
+        if isSystemAudioEnabled {
+            stopSystemAudioProcessing()
+        }
         
         // Stop mixed audio stream
         stopMixedAudioStream()
@@ -333,6 +355,7 @@ final class CaptionViewModel: ObservableObject {
                         self.statusText = "System audio permission denied"
                         self.logger.warning("💻 System audio permission denied")
                     }
+                    AudioDebugLogger.shared.logSystemAudioStatus(isEnabled: false, error: "Permission denied")
                     return
                 }
                 
@@ -343,8 +366,9 @@ final class CaptionViewModel: ObservableObject {
                     self.isSystemAudioEnabled = true
                     self.updateStatus()
                     
-                    // Restart mixed stream if recording
+                    // Start system audio processing if recording
                     if self.isRecording {
+                        self.startSystemAudioProcessing()
                         self.startMixedAudioStream()
                     }
                     
@@ -356,6 +380,7 @@ final class CaptionViewModel: ObservableObject {
                     self.statusText = "Failed to start system audio: \(error.localizedDescription)"
                     self.logger.error("❌ System audio start error: \(error)")
                 }
+                AudioDebugLogger.shared.logSystemAudioStatus(isEnabled: false, error: error.localizedDescription)
             }
         }
     }
@@ -364,6 +389,9 @@ final class CaptionViewModel: ObservableObject {
         logger.info("💻 STOPPING SYSTEM AUDIO SOURCE")
         
         guard isSystemAudioEnabled else { return }
+        
+        // Stop system audio processing
+        stopSystemAudioProcessing()
         
         systemAudioManager?.stopCapture()
         audioMixingService?.stopMixing()
@@ -416,6 +444,10 @@ final class CaptionViewModel: ObservableObject {
             return
         }
         
+        logger.info("🎵 STARTING MIXED AUDIO STREAM")
+        logger.info("   - Microphone enabled: \(self.isMicrophoneEnabled)")
+        logger.info("   - System audio enabled: \(self.isSystemAudioEnabled)")
+        
         // Create audio streams based on enabled sources
         let microphoneStream = self.isMicrophoneEnabled ? getMicrophoneAudioStream() : createEmptyAudioStream()
         let systemAudioStream = self.isSystemAudioEnabled ? self.systemAudioManager?.systemAudioStream() ?? createEmptyAudioStream() : createEmptyAudioStream()
@@ -438,6 +470,97 @@ final class CaptionViewModel: ObservableObject {
                 self.processAudioBufferForVAD(buffer, samples: audioSamples)
             }
         }
+        
+        logger.info("🎵 MIXED AUDIO STREAM ENDED")
+    }
+    
+    // MARK: - System Audio Processing
+    
+    private func startSystemAudioProcessing() {
+        guard let systemAudioManager = systemAudioManager else {
+            logger.error("💻 System audio manager not available")
+            return
+        }
+        
+        logger.info("💻 STARTING DIRECT SYSTEM AUDIO PROCESSING")
+        
+        // Create a task to process system audio stream directly
+        systemAudioStreamTask = Task { [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                let systemStream = systemAudioManager.systemAudioStream()
+                
+                for try await audioSamples in systemStream {
+                    guard !Task.isCancelled, self.isRecording, self.isSystemAudioEnabled else { 
+                        self.logger.info("💻 Breaking system audio processing: cancelled=\(Task.isCancelled), recording=\(self.isRecording), enabled=\(self.isSystemAudioEnabled)")
+                        break 
+                    }
+                    
+                    self.logger.info("💻 RECEIVED \(audioSamples.count) samples from AsyncStream")
+                    
+                    // Convert system audio samples to AVAudioPCMBuffer
+                    if let buffer = self.createAudioBuffer(from: audioSamples) {
+                        // Send directly to speech recognition on main thread
+                        DispatchQueue.main.async { [weak self] in
+                            self?.recognitionRequest?.append(buffer)
+                            self?.logger.info("💻 System audio buffer sent to speech recognition: \(buffer.frameLength) frames, \(buffer.format.channelCount) channels, \(buffer.format.sampleRate) Hz")
+                        }
+                        
+                        // Process for VAD and debugging
+                        self.processSystemAudioForVAD(buffer, samples: audioSamples)
+                    }
+                }
+                
+                self.logger.info("💻 SYSTEM AUDIO PROCESSING ENDED")
+            } catch {
+                self.logger.error("💻 System audio processing error: \(error)")
+            }
+        }
+    }
+    
+    private func stopSystemAudioProcessing() {
+        logger.info("💻 STOPPING SYSTEM AUDIO PROCESSING")
+        systemAudioStreamTask?.cancel()
+        systemAudioStreamTask = nil
+    }
+    
+    private func processSystemAudioForVAD(_ buffer: AVAudioPCMBuffer, samples: [Float]) {
+        let isSpeech = vadProcessor.processAudioChunk(samples)
+        
+        self.frameCounter += 1
+        
+        // Enhanced debug logging for system audio
+        AudioDebugLogger.shared.logAudioFrame(
+            source: .systemAudio,
+            frameIndex: self.frameCounter,
+            samples: samples,
+            sampleRate: 16000, // System audio is converted to 16kHz
+            vadDecision: isSpeech
+        )
+        
+        // Detect speech state transitions for system audio
+        if isSpeech != currentSpeechState {
+            AudioDebugLogger.shared.logVADTransition(from: currentSpeechState, to: isSpeech)
+            
+            if isSpeech {
+                logger.info("🗣️ SYSTEM AUDIO SPEECH START detected")
+                onSpeechStart()
+            } else {
+                logger.info("🤫 SYSTEM AUDIO SPEECH END detected")
+                onSpeechEnd()
+            }
+            currentSpeechState = isSpeech
+        }
+        
+        // Check for sentence timeout during silence
+        if !isSpeech && !currentTranscription.isEmpty {
+            let silenceDuration = Date().timeIntervalSince(silenceStartTime)
+            if silenceDuration >= sentenceTimeoutDuration {
+                logger.info("⏰ SYSTEM AUDIO SENTENCE TIMEOUT after \(String(format: "%.1f", silenceDuration))s silence")
+                finalizeSentence()
+            }
+        }
     }
     
     // MARK: - Audio Buffer Processing with Detailed Logging
@@ -448,38 +571,45 @@ final class CaptionViewModel: ObservableObject {
         let frameCount = Int(buffer.frameLength)
         let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
         let sampleRate = buffer.format.sampleRate
-        let rms = calculateRMS(samples)
         
         self.frameCounter += 1
         
-        // Log every 10th frame to avoid spam
-        if self.frameCounter % 10 == 0 {
-            logger.info("🎤 FRAME[\(self.frameCounter)] MIC: \(frameCount) samples @ \(Int(sampleRate))Hz, RMS=\(String(format: "%.4f", rms))")
-        }
+        // Enhanced debug logging with colors
+        AudioDebugLogger.shared.logAudioFrame(
+            source: .microphone,
+            frameIndex: self.frameCounter,
+            samples: samples,
+            sampleRate: sampleRate,
+            vadDecision: nil
+        )
         
-        // If only microphone is enabled (no system audio), send directly to speech recognizer
-        if isMicrophoneEnabled && !isSystemAudioEnabled && isRecording {
-            recognitionRequest?.append(buffer)
+        // Send microphone audio directly to speech recognizer when enabled
+        if isMicrophoneEnabled && isRecording {
+            DispatchQueue.main.async { [weak self] in
+                self?.recognitionRequest?.append(buffer)
+            }
             processAudioBufferForVAD(buffer, samples: samples)
         }
     }
     
     private func processAudioBufferForVAD(_ buffer: AVAudioPCMBuffer, samples: [Float]) {
-        let frameCount = samples.count
-        let rms = calculateRMS(samples)
         let isSpeech = vadProcessor.processAudioChunk(samples)
         
         self.frameCounter += 1
         
-        // Enhanced logging every 10th frame
-        if self.frameCounter % 10 == 0 {
-            let vadStatus = isSpeech ? "SPEECH" : "SILENCE"
-            let rmsStatus = rms > 0.01 ? "ABOVE_THRESHOLD" : "BELOW_THRESHOLD"
-            logger.info("🎵 FRAME[\(self.frameCounter)] MIXED: \(frameCount) samples, RMS=\(String(format: "%.4f", rms)), VAD=\(vadStatus), \(rmsStatus)")
-        }
+        // Enhanced debug logging with colors and VAD decision
+        AudioDebugLogger.shared.logAudioFrame(
+            source: .mixed,
+            frameIndex: self.frameCounter,
+            samples: samples,
+            sampleRate: 16000, // Mixed audio is always 16kHz
+            vadDecision: isSpeech
+        )
         
         // Detect speech state transitions
         if isSpeech != currentSpeechState {
+            AudioDebugLogger.shared.logVADTransition(from: currentSpeechState, to: isSpeech)
+            
             if isSpeech {
                 logger.info("🗣️ SPEECH START detected")
                 onSpeechStart()
@@ -505,9 +635,8 @@ final class CaptionViewModel: ObservableObject {
     private func updateStatus() {
         let micStatus = isMicrophoneEnabled ? "MIC:ON" : "MIC:OFF"
         let systemStatus = isSystemAudioEnabled ? "SYS:ON" : "SYS:OFF"
-        let recStatus = isRecording ? "REC:ON" : "REC:OFF"
         
-        self.statusText = "\(recStatus) | \(micStatus) | \(systemStatus)"
+        self.statusText = "\(micStatus) | \(systemStatus)"
         logger.info("📊 STATUS UPDATE: \(self.statusText)")
     }
     
@@ -534,19 +663,27 @@ final class CaptionViewModel: ObservableObject {
     }
     
     private func createAudioBuffer(from samples: [Float]) -> AVAudioPCMBuffer? {
+        logger.info("💻 createAudioBuffer called with \(samples.count) samples")
+        
         // Create audio format
         guard let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 16000,
             channels: 1,
             interleaved: false
-        ) else { return nil }
+        ) else { 
+            logger.error("💻 ❌ Failed to create audio format")
+            return nil 
+        }
         
         // Create buffer
         guard let buffer = AVAudioPCMBuffer(
             pcmFormat: format,
             frameCapacity: AVAudioFrameCount(samples.count)
-        ) else { return nil }
+        ) else { 
+            logger.error("💻 ❌ Failed to create AVAudioPCMBuffer")
+            return nil 
+        }
         
         // Copy samples
         buffer.frameLength = AVAudioFrameCount(samples.count)
@@ -554,6 +691,10 @@ final class CaptionViewModel: ObservableObject {
             for (index, sample) in samples.enumerated() {
                 channelData[index] = sample
             }
+            logger.info("💻 ✅ Successfully created buffer with \(buffer.frameLength) frames")
+        } else {
+            logger.error("💻 ❌ No channel data available in buffer")
+            return nil
         }
         
         return buffer
@@ -622,4 +763,5 @@ final class CaptionViewModel: ObservableObject {
         }
         return ""
     }
+    
 }

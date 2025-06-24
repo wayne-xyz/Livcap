@@ -40,9 +40,12 @@ struct CaptionView: View {
             showWindowControls = hovering
         }
         .onDisappear {
-            // Stop recording when window closes
-            if caption.isRecording {
-                caption.toggleRecording()
+            // Stop audio sources when window closes
+            if caption.isMicrophoneEnabled {
+                caption.toggleMicrophone()
+            }
+            if caption.isSystemAudioEnabled {
+                caption.toggleSystemAudio()
             }
         }
     }
@@ -112,14 +115,13 @@ struct CaptionView: View {
             .padding(.horizontal, 20) // Equal margins on both sides
 
             
-            // Right side buttons: record, system audio, mic and pin
+            // Right side buttons: system audio, mic and pin (removed recording button)
             HStack(spacing: 8) {
-                recordToggleButton()
                 systemAudioToggleButton()
                 micToggleButton()
                 pinButton()
             }
-            .frame(width: 160) // Increased width for additional button
+            .frame(width: 120) // Reduced width since we removed one button
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
@@ -135,9 +137,8 @@ struct CaptionView: View {
                 
                 Spacer()
                 
-                // Right side buttons: record, system audio, mic and pin
+                // Right side buttons: system audio, mic and pin (removed recording button)
                 HStack(spacing: 8) {
-                    recordToggleButton()
                     systemAudioToggleButton()
                     micToggleButton()
                     pinButton()
@@ -206,27 +207,7 @@ struct CaptionView: View {
         }
     }
     
-    @ViewBuilder
-    private func recordToggleButton() -> some View {
-        Button(action: {
-            caption.toggleRecording()
-        }) {
-            Image(systemName: caption.isRecording ? "record.circle.fill" : "record.circle")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(caption.isRecording ? .red : .secondary)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.5)
-                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .help(caption.isRecording ? "Stop recording" : "Start recording")
-        .opacity(isHovering ? 1.0 : 0.0)
-        .animation(.easeInOut(duration: 0.2), value: isHovering)
-    }
+
     
     @ViewBuilder
     private func pinButton() -> some View {

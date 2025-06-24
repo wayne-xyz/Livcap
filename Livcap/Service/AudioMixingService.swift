@@ -235,6 +235,13 @@ class AudioMixingService: ObservableObject {
             self.mixedAudioLevel = mixedLevel
         }
         
+        // Log mixed audio buffer info
+        AudioDebugLogger.shared.logBufferData(
+            source: .mixed,
+            bufferSize: mixedSamples.count,
+            duration: Double(mixedSamples.count) / config.sampleRate
+        )
+        
         // Send mixed audio to output stream
         mixedAudioContinuation?.yield(mixedSamples)
     }
