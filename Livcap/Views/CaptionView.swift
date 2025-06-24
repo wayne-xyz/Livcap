@@ -11,94 +11,33 @@ struct CaptionView: View {
     @StateObject private var caption = CaptionViewModel()
     @State private var isPinned = false
     @State private var isHovering = false
+    @State private var showWindowControls = false
     
-    private let opacityLevel: Double=0.75
+    private let opacityLevel: Double = 0.7
     
     var body: some View {
-        ZStack {
-            // Transparent background with blur
-            Rectangle()
-                .fill(Color.backgroundColor)
-                .background(.ultraThinMaterial, in: Rectangle())
-                .opacity(opacityLevel)
-            
-            VStack(spacing: 0) {
-                // Pin button - only visible when hovering
-                HStack {
-                    Spacer()
-                    
-                    Button(action: {
-                        togglePin()
-                    }) {
-                        Image(systemName: isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(isPinned ? .blue : .secondary)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle()
-                                    .fill(.ultraThinMaterial)
-                                    .opacity(0.5)
-                                    .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .help(isPinned ? "Unpin from top" : "Pin to top ")
-                    .opacity(isHovering ? 1.0 : 0.0)
-                    .animation(.easeInOut(duration: 0.2), value: isHovering)
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-
+        GeometryReader { geometry in
+            ZStack {
+                // Transparent background with blur
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.backgroundColor)
+                    .background(.ultraThinMaterial, in: Rectangle())
+                    .opacity(opacityLevel)
                 
-                // Simple scrollable caption display
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(caption.captionHistory) { entry in
-                                Text(entry.text)
-                                    .font(.system(size: 22, weight: .medium, design: .rounded))
-                                    .foregroundColor(.primary)
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 4)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .fill(Color.clear)
-                                            .opacity(opacityLevel)
-                                    )
-                                    .id(entry.id)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 16)
-                        
-                    
-                        
-                        
-                    }
-                    .onChange(of: caption.captionHistory.count) { _, _ in
-                        if let lastEntry = caption.captionHistory.last {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                proxy.scrollTo(lastEntry.id, anchor: .bottom)
-                            }
-                        }
-                    }
-                    
-
-                    
+                // Adaptive layout based on window height
+                if geometry.size.height <= 100 {
+                    // Small height: Single row layout
+                    compactLayout(geometry: geometry)
+                } else {
+                    // Larger height: Traditional layout with controls at top, content below
+                    expandedLayout(geometry: geometry)
                 }
             }
         }
-        .frame(minWidth: 400, minHeight: 100)
+        .frame(minWidth: 400, minHeight: 45)
         .onHover { hovering in
             isHovering = hovering
-        }
-        .onAppear {
-            // Start recording automatically
-            if !caption.isRecording {
-                caption.toggleRecording()
-            }
+            showWindowControls = hovering
         }
         .onDisappear {
             // Stop recording when window closes
@@ -107,6 +46,206 @@ struct CaptionView: View {
             }
         }
     }
+    
+    // MARK: - Layout Functions
+    
+    @ViewBuilder
+    private func compactLayout(geometry: GeometryProxy) -> some View {
+        HStack(spacing: 0) {
+            // Window control buttons (left side)
+            WindowControlButtons(isVisible: $showWindowControls)
+                .frame(width: 80) // Fixed width for buttons
+            
+            // Centered content area with auto-scroll
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        // Caption history (older sentences at top)
+                        ForEach(caption.captionHistory) { entry in
+                            Text(entry.text)
+                                .font(.system(size: 22, weight: .medium, design: .rounded))
+                                .foregroundColor(.primary)
+                                .lineSpacing(7)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color.clear)
+                                        .opacity(opacityLevel)
+                                )
+                        }
+                        
+                        // Current transcription (real-time at bottom)
+                        if !caption.currentTranscription.isEmpty {
+                            Text(caption.currentTranscription+"...")
+                                .font(.system(size: 22, weight: .medium, design: .rounded))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 4)
+                                .lineSpacing(7)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("currentTranscription")
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
+                }
+                .onChange(of: caption.currentTranscription) {
+                    if !caption.currentTranscription.isEmpty {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            proxy.scrollTo("currentTranscription", anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: caption.captionHistory.count) {
+                    // Auto-scroll when new caption is added
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if let lastEntry = caption.captionHistory.last {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                proxy.scrollTo(lastEntry.id, anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20) // Equal margins on both sides
+
+            
+            // Right side buttons: mic and pin
+            HStack(spacing: 8) {
+                micToggleButton()
+                pinButton()
+            }
+            .frame(width: 80) // Fixed width for right buttons
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
+    }
+    
+    @ViewBuilder
+    private func expandedLayout(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            // Top section with window controls and pin button
+            HStack {
+                // Window control buttons (left side)
+                WindowControlButtons(isVisible: $showWindowControls)
+                
+                Spacer()
+                
+                // Right side buttons: mic and pin
+                HStack(spacing: 8) {
+                    micToggleButton()
+                    pinButton()
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 0)
+            .frame(height: 50)
+            
+            // Main content area with auto-scroll
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        // Caption history (older sentences at top)
+                        ForEach(caption.captionHistory) { entry in
+                            Text(entry.text)
+                                .font(.system(size: 22, weight: .medium, design: .rounded))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 20)
+                                .lineSpacing(7)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color.clear)
+                                        .opacity(opacityLevel)
+                                )
+                        }
+                        
+                        // Current transcription (real-time at bottom)
+                        if !caption.currentTranscription.isEmpty {
+                            Text(caption.currentTranscription+"...")
+                                .font(.system(size: 22, weight: .medium, design: .rounded))
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 20)
+                                .lineSpacing(7)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("currentTranscription")
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
+                }
+                .onChange(of: caption.currentTranscription) {
+                    if !caption.currentTranscription.isEmpty {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            proxy.scrollTo("currentTranscription", anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: caption.captionHistory.count) {
+                    // Auto-scroll when new caption is added
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if let lastEntry = caption.captionHistory.last {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                proxy.scrollTo(lastEntry.id, anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20) // Equal margins on both sides for centering
+            .padding(.bottom, 20)
+
+        }
+    }
+    
+    @ViewBuilder
+    private func pinButton() -> some View {
+        Button(action: {
+            togglePin()
+        }) {
+            Image(systemName: isPinned ? "pin.fill" : "pin")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(isPinned ? .primary : .secondary)
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.5)
+                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .help(isPinned ? "Unpin from top" : "Pin to top")
+        .opacity(isHovering ? 1.0 : 0.0)
+        .animation(.easeInOut(duration: 0.2), value: isHovering)
+    }
+    
+    @ViewBuilder
+    private func micToggleButton() -> some View {
+        Button(action: {
+            caption.toggleRecording()
+        }) {
+            Image(systemName: caption.isRecording ? "mic.fill" : "mic.slash")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(caption.isRecording ? .primary : .secondary)
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.5)
+                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .help(caption.isRecording ? "Stop recording" : "Start recording")
+        .opacity(isHovering ? 1.0 : 0.0)
+        .animation(.easeInOut(duration: 0.2), value: isHovering)
+    }
+    
     
     private func togglePin() {
         isPinned.toggle()

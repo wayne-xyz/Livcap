@@ -7,80 +7,72 @@
 
 import Foundation
 import Combine
+import Speech
+import AVFoundation
+import Accelerate
 
 
-/// `TranscriptionViewModel` acts as a bridge between the `AudioManager` and the SwiftUI `View`.
-///
-/// It holds the state for the UI, controls the audio recording, and listens for audio chunks
-/// to provide feedback to the user.
+/// CaptionViewModel for real-time speech recognition using SFSpeechRecognizer
 final class CaptionViewModel: ObservableObject {
     
     // MARK: - Published Properties for UI
     
-    /// The current recording state, published for the UI to observe.
-    @Published private(set) var isRecording = false //for ui
-    
-    /// A status message to display in the UI (e.g., "Recording...", "Stopped", "Processing chunk...").
+    @Published private(set) var isRecording = false
     @Published var statusText: String = "Ready to record"
-    
-    // MARK: - Transcription Display Manager
-    
-    @Published var transcriptionManager: TranscriptionDisplayManager
+    @Published var captionHistory: [CaptionEntry] = []
+    @Published var currentTranscription: String = ""
     
     // MARK: - Private Properties
     
-    private let audioManager: AudioManager
-    private let buffermanager: BufferManager
-    private var whisperCppTranscriber: WhisperCppTranscriber?
+    private let speechRecognizer: SFSpeechRecognizer?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private var audioEngine: AVAudioEngine?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     
-    private var audioProcessingTask: Task<Void,Error>?
-    private var transcriblerCancellable: AnyCancellable?
+    private var cancellables = Set<AnyCancellable>()
+    
+    // MARK: - VAD and Sentence Segmentation Properties
+    
+    private let vadProcessor = VADProcessor()
+    private var currentSpeechState: Bool = false
+    private var silenceStartTime: Date = Date()
+    private let sentenceTimeoutDuration: TimeInterval = 2.0 // 2 seconds of silence to end sentence
+    
+    // Track processed text to avoid duplication
+    private var processedTextLength: Int = 0
+    private var fullTranscriptionText: String = ""
     
     // MARK: - Initialization
     
-    init(audioManager: AudioManager = AudioManager()) {
-        self.audioManager = audioManager
-        self.buffermanager = BufferManager()
-        self.whisperCppTranscriber = WhisperCppTranscriber()
-        self.transcriptionManager = TranscriptionDisplayManager()
-        setupTranscriptionSubscription()
+    init() {
+        self.speechRecognizer = SFSpeechRecognizer(locale: Locale.current)
+        setupSpeechRecognition()
     }
     
-    // MARK: - Core Pipeline subscriptions
+    // MARK: - Setup
     
-    private func setupTranscriptionSubscription() {
-        guard let transcriber = whisperCppTranscriber else { return }
-        
-        transcriblerCancellable = transcriber.transcriptionPublisher
-            .receive(on: DispatchQueue.main)
-            .sink(
-                receiveCompletion: { completion in
-                    switch completion {
-                    case .finished:
-                        print("Transcription publisher finished")
-                    case .failure(let error):
-                        print("Transcription publisher error: \(error)")
-                        self.statusText = "Transcription error: \(error.localizedDescription)"
-                        self.transcriptionManager.updateStatus(.error(error.localizedDescription))
-                    }
-                },
-                receiveValue: { [weak self] result in
-                    self?.handleTranscriptionResult(result)
+    private func setupSpeechRecognition() {
+        // Request authorization
+        SFSpeechRecognizer.requestAuthorization { [weak self] authStatus in
+            DispatchQueue.main.async {
+                switch authStatus {
+                case .authorized:
+                    self?.statusText = "Ready to record"
+                case .denied:
+                    self?.statusText = "Speech recognition permission denied"
+                case .restricted:
+                    self?.statusText = "Speech recognition restricted"
+                case .notDetermined:
+                    self?.statusText = "Speech recognition not determined"
+                @unknown default:
+                    self?.statusText = "Speech recognition authorization unknown"
                 }
-            )
-    }
-    
-    private func handleTranscriptionResult(_ result: SimpleTranscriptionResult) {
-        // Delegate to the transcription manager
-        transcriptionManager.processTranscription(result)
-        
-        // Update status text from the manager
-        statusText = transcriptionManager.displayStatus.description
+            }
+        }
     }
     
     // MARK: - Main control functions
     
-    /// Toggles the recording state.
     func toggleRecording() {
         if isRecording {
             stopRecording()
@@ -90,79 +82,218 @@ final class CaptionViewModel: ObservableObject {
     }
     
     private func startRecording() {
-        guard audioProcessingTask == nil else {
+        guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
+            statusText = "Speech recognizer not available"
             return
         }
         
-        isRecording = true
-        statusText = "Starting recording..."
-        transcriptionManager.clearAll()
-        transcriptionManager.updateStatus(.ready)
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
+            statusText = "Speech recognition not authorized"
+            return
+        }
         
-        Task{
-            await audioManager.start()
+        // Cancel any existing task
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        
+        // Setup audio engine
+        audioEngine = AVAudioEngine()
+        guard let audioEngine = audioEngine else {
+            statusText = "Failed to create audio engine"
+            return
+        }
+        
+        let inputNode = audioEngine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        
+        // Create recognition request
+        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
+        guard let recognitionRequest = recognitionRequest else {
+            statusText = "Failed to create recognition request"
+            return
+        }
+        
+        recognitionRequest.shouldReportPartialResults = true
+        
+        // Install tap on input node
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+            self?.recognitionRequest?.append(buffer)
             
-            audioProcessingTask=Task{ [weak self] in
-                guard let self=self else {return}
-                print("ViewModeL; Starting audio processing...")
-                
-                do {
-                    let audioFrameStream=self.audioManager.audioFrames()
-                    
-                    for try await segment in await self.buffermanager.processFrames(audioFrameStream){
-                        print("ViewModelL; Got a segment: \(segment.id)")
-                        await self.whisperCppTranscriber?.transcribe(segment: segment)
-                        
-                        try Task.checkCancellation()
-                        
-                    }
-                    
-                    print("Audio frames stream finished.")
-                    
-
-                    await MainActor.run{
-                        self.statusText="Recording stopped."
-                        self.isRecording=false
-                        self.transcriptionManager.updateStatus(.ready)
-                    }
-                }catch is CancellationError{
-                    await MainActor.run{
-                        self.statusText="Recording stopped by user."
-                        self.isRecording=false
-                        self.transcriptionManager.updateStatus(.ready)
-                    }
-                    print("Recording stopped by user.")
-                }catch{
-                    await MainActor.run{
-                        self.statusText="An error occurred: \(error)"
-                        self.isRecording=false
-                        self.transcriptionManager.updateStatus(.error(error.localizedDescription))
-                    }
-                    print("An error occurred: \(error)")
+            // Always process audio through VAD for sentence segmentation
+            self?.processAudioBufferForVAD(buffer)
+        }
+        
+        // Start recognition task
+        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
+            guard let self = self else { return }
+            
+            if let error = error {
+                DispatchQueue.main.async {
+                    self.statusText = "Recognition error: \(error.localizedDescription)"
                 }
-                self.audioProcessingTask=nil
+                return
             }
+            
+            if let result = result {
+                let transcription = result.bestTranscription.formattedString
+                print("transcription result: \(transcription)")
+                
+                DispatchQueue.main.async {
+                    // Store the full transcription from SFSpeechRecognizer
+                    let previousFullLength = self.fullTranscriptionText.count
+                    self.fullTranscriptionText = transcription
+                    
+                    // Extract only the NEW part that hasn't been processed yet
+                    let newPart = self.extractNewTranscriptionPart(from: transcription)
+                    self.currentTranscription = newPart
+                    
+                    // If new text was added, reset silence timer if we're currently in silence
+                    if transcription.count > previousFullLength {
+                        if !self.currentSpeechState {
+                            self.silenceStartTime = Date()
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Prepare and start audio engine
+        do {
+            audioEngine.prepare()
+            try audioEngine.start()
+            
+            isRecording = true
+            statusText = "Recording..."
+            currentTranscription = ""
+            
+        } catch {
+            statusText = "Failed to start audio engine: \(error.localizedDescription)"
+            print("Audio engine start error: \(error)")
         }
     }
     
     private func stopRecording() {
         guard isRecording else { return }
-        audioManager.stop()
-        audioProcessingTask?.cancel()
-        audioProcessingTask=nil
+        
+        // Stop audio engine
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        
+        // Cancel recognition task
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        
+        // End recognition request
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+        
+        isRecording = false
+        statusText = "Recording stopped"
+        
+        // Add final transcription to history if not empty
+        if !currentTranscription.isEmpty {
+            addToHistory(currentTranscription)
+            currentTranscription = ""
+        }
+        
+        // Reset VAD state and text tracking
+        vadProcessor.reset()
+        currentSpeechState = false
+        processedTextLength = 0
+        fullTranscriptionText = ""
+    }
+    
+    private func addToHistory(_ text: String) {
+        let entry = CaptionEntry(
+            id: UUID(),
+            text: text,
+            confidence: 1.0 // SFSpeechRecognizer doesn't provide confidence scores
+        )
+        captionHistory.append(entry)
+        
+        // Keep only last 50 entries to prevent memory issues
+        if captionHistory.count > 50 {
+            captionHistory.removeFirst()
+        }
     }
     
     func clearCaptions() {
-        transcriptionManager.clearAll()
+        captionHistory.removeAll()
+        currentTranscription = ""
     }
     
-    // MARK: - Computed Properties for UI
+    // MARK: - VAD Processing for Sentence Segmentation
     
-    var captionText: String {
-        return transcriptionManager.displayCaption
+    private func processAudioBufferForVAD(_ buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData else { return }
+        
+        let frameCount = Int(buffer.frameLength)
+        let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
+        
+        let isSpeech = vadProcessor.processAudioChunk(samples)
+        
+        // Detect speech state transitions
+        if isSpeech != currentSpeechState {
+            if isSpeech {
+                // Silence to speech transition
+                onSpeechStart()
+            } else {
+                // Speech to silence transition
+                onSpeechEnd()
+            }
+            currentSpeechState = isSpeech
+        }
+        
+        // Check for sentence timeout during silence
+        if !isSpeech && !currentTranscription.isEmpty {
+            let silenceDuration = Date().timeIntervalSince(silenceStartTime)
+            if silenceDuration >= sentenceTimeoutDuration {
+                finalizeSentence()
+            }
+        }
     }
     
-    var captionHistory: [CaptionEntry] {
-        return transcriptionManager.captionHistory
+    private func onSpeechStart() {
+        debugLog("Speech detected - continuing sentence")
+        // Speech started, no immediate action needed
+        // Just continue building the current transcription
+    }
+    
+    private func onSpeechEnd() {
+        // Speech ended, start silence timer
+        silenceStartTime = Date()
+        debugLog("Silence detected - starting sentence timeout")
+    }
+    
+    private func finalizeSentence() {
+        DispatchQueue.main.async {
+            if !self.currentTranscription.isEmpty {
+                debugLog("Sentence timeout reached - finalizing: \(self.currentTranscription)")
+                
+                // Add the current sentence part to history
+                self.addToHistory(self.currentTranscription)
+                
+                // Update processed length to include what we just added
+                self.processedTextLength = self.fullTranscriptionText.count
+                
+                // Clear current transcription for next sentence
+                self.currentTranscription = ""
+                
+                // Reset silence timer
+                self.silenceStartTime = Date()
+            }
+        }
+    }
+    
+    // MARK: - Text Processing Helpers
+    
+    private func extractNewTranscriptionPart(from fullText: String) -> String {
+        // Extract only the part that hasn't been processed yet
+        if fullText.count > processedTextLength {
+            let startIndex = fullText.index(fullText.startIndex, offsetBy: processedTextLength)
+            let newPart = String(fullText[startIndex...])
+            return newPart.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return ""
     }
 }
