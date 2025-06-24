@@ -112,13 +112,14 @@ struct CaptionView: View {
             .padding(.horizontal, 20) // Equal margins on both sides
 
             
-            // Right side buttons: system audio, mic and pin
+            // Right side buttons: record, system audio, mic and pin
             HStack(spacing: 8) {
+                recordToggleButton()
                 systemAudioToggleButton()
                 micToggleButton()
                 pinButton()
             }
-            .frame(width: 120) // Increased width for additional button
+            .frame(width: 160) // Increased width for additional button
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
@@ -134,8 +135,9 @@ struct CaptionView: View {
                 
                 Spacer()
                 
-                // Right side buttons: system audio, mic and pin
+                // Right side buttons: record, system audio, mic and pin
                 HStack(spacing: 8) {
+                    recordToggleButton()
                     systemAudioToggleButton()
                     micToggleButton()
                     pinButton()
@@ -205,6 +207,28 @@ struct CaptionView: View {
     }
     
     @ViewBuilder
+    private func recordToggleButton() -> some View {
+        Button(action: {
+            caption.toggleRecording()
+        }) {
+            Image(systemName: caption.isRecording ? "record.circle.fill" : "record.circle")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(caption.isRecording ? .red : .secondary)
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.5)
+                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+                )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .help(caption.isRecording ? "Stop recording" : "Start recording")
+        .opacity(isHovering ? 1.0 : 0.0)
+        .animation(.easeInOut(duration: 0.2), value: isHovering)
+    }
+    
+    @ViewBuilder
     private func pinButton() -> some View {
         Button(action: {
             togglePin()
@@ -231,7 +255,7 @@ struct CaptionView: View {
         Button(action: {
             caption.toggleSystemAudio()
         }) {
-            Image(systemName: caption.isSystemAudioEnabled ? "speaker.wave.2.fill" : "speaker.slash")
+            Image(systemName: caption.isSystemAudioEnabled ? "macbook" : "macbook.slash")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundColor(caption.isSystemAudioEnabled ? .primary : .secondary)
                 .frame(width: 32, height: 32)
@@ -251,11 +275,11 @@ struct CaptionView: View {
     @ViewBuilder
     private func micToggleButton() -> some View {
         Button(action: {
-            caption.toggleRecording()
+            caption.toggleMicrophone()
         }) {
-            Image(systemName: caption.isRecording ? "mic.fill" : "mic.slash")
+            Image(systemName: caption.isMicrophoneEnabled ? "mic.fill" : "mic.slash")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(caption.isRecording ? .primary : .secondary)
+                .foregroundColor(caption.isMicrophoneEnabled ? .primary : .secondary)
                 .frame(width: 32, height: 32)
                 .background(
                     Circle()
@@ -265,7 +289,7 @@ struct CaptionView: View {
                 )
         }
         .buttonStyle(PlainButtonStyle())
-        .help(caption.isRecording ? "Stop recording" : "Start recording")
+        .help(caption.isMicrophoneEnabled ? "Disable microphone" : "Enable microphone")
         .opacity(isHovering ? 1.0 : 0.0)
         .animation(.easeInOut(duration: 0.2), value: isHovering)
     }
