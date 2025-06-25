@@ -158,6 +158,7 @@ final class AudioCoordinator {
                         let micStream = self.micAudioManager.audioFramesWithVAD()
                         for await frame in micStream {
                             if Task.isCancelled { break }
+                            debugLog("Audio frame sending from the audioconductor: \(frame.vadResult)")
                             continuation.yield(frame)
                         }
                     } else if self.isSystemAudioEnabled {

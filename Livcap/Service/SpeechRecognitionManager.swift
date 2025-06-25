@@ -216,6 +216,7 @@ final class SpeechRecognitionManager: ObservableObject {
         guard isRecording, let recognitionRequest = recognitionRequest else { return }
         
         // Direct buffer append - no conversion needed! 🎉
+        print("buffer accepted: \(audioFrame.isSpeech), buffer type:\(String(describing: audioFrame.source))")
         recognitionRequest.append(audioFrame.buffer)
         
         // Use VAD result for speech state management

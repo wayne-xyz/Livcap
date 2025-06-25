@@ -5,8 +5,7 @@
 //  Created by Rongwei Ji on 6/9/25.
 //
 // CaptionViewmodel is conductor role in the caption view for the main function
-// working with MicAudioManager and SystemAudioManager to accesp two reosuces audio
-// working with the display
+//
 
 import Foundation
 import Combine
@@ -82,7 +81,7 @@ final class CaptionViewModel: ObservableObject {
     // MARK: - Auto Speech Recognition Management
     
     private func manageRecordingState() {
-        let shouldBeRecording = audioCoordinator.isMicrophoneEnabled || audioCoordinator.isSystemAudioEnabled
+        let shouldBeRecording = !audioCoordinator.isMicrophoneEnabled && !audioCoordinator.isSystemAudioEnabled
         
         if shouldBeRecording && !isRecording {
             startRecording()
