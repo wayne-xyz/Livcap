@@ -132,21 +132,18 @@ final class MicAudioManager: ObservableObject {
         ) { [weak self] buffer, time in
             guard let self = self else { return }
             Task.detached {
-                // downsampling to the 16k mono, after convert the buffer framelength extend to the 1600 instead of the 4096/48000*16000=1366
+                // Convert to target format (16kHz mono)
                 let pcmBuffer = self.convertBuffer(buffer, to: processingFormat)
                 
-                // Extract float samples
-                guard let floatChannelData = pcmBuffer.floatChannelData else {
-                    return
+                // Process with new buffer-based VAD (no float conversion needed!)
+                self.processAudioBufferWithVAD(pcmBuffer)
+                
+                // Legacy compatibility: Extract float samples only if needed
+                if let continuation = self.audioStreamContinuation {
+                    guard let floatChannelData = pcmBuffer.floatChannelData else { return }
+                    let samples = Array(UnsafeBufferPointer(start: floatChannelData[0], count: Int(pcmBuffer.frameLength)))
+                    continuation.yield(samples)
                 }
-                
-                let samples = Array(UnsafeBufferPointer(start: floatChannelData[0], count: Int(pcmBuffer.frameLength)))
-                
-                // Yield raw samples for legacy compatibility
-                self.audioStreamContinuation?.yield(samples)
-                
-                // Process VAD and yield enhanced frame
-                self.processAudioFrameWithVAD(samples)
             }
         }
 
@@ -181,49 +178,38 @@ final class MicAudioManager: ObservableObject {
     
     // MARK: - VAD Processing
     
-    private func processAudioFrameWithVAD(_ samples: [Float]) {
+    private func processAudioBufferWithVAD(_ buffer: AVAudioPCMBuffer) {
         frameCounter += 1
         
-        // Process VAD
-        let isSpeech = vadProcessor.processAudioChunk(samples)
+        // Process VAD using new buffer-based method
+        let vadResult = vadProcessor.processAudioBuffer(buffer)
         
-        // Calculate RMS energy
-        let rmsEnergy = calculateRMS(samples)
-        
-        // Create VAD result
-        let vadResult = AudioVADResult(
-            isSpeech: isSpeech,
-            confidence: isSpeech ? 0.8 : 0.2, // Simple confidence based on VAD decision
-            rmsEnergy: rmsEnergy
-        )
-        
-        // Create enhanced audio frame
+        // Create enhanced audio frame with buffer
         let audioFrame = AudioFrameWithVAD(
-            samples: samples,
+            buffer: buffer,
             vadResult: vadResult,
             source: .microphone,
-            frameIndex: frameCounter,
-            sampleRate: targetSampleRate
+            frameIndex: frameCounter
         )
         
         // Yield enhanced frame
         vadAudioStreamContinuation?.yield(audioFrame)
         
-        // Debug logging
+        // Debug logging (using convenience samples property when needed)
         AudioDebugLogger.shared.logAudioFrame(
             source: .microphone,
             frameIndex: frameCounter,
-            samples: samples,
-            sampleRate: targetSampleRate,
-            vadDecision: isSpeech
+            samples: audioFrame.samples,
+            sampleRate: audioFrame.sampleRate,
+            vadDecision: vadResult.isSpeech
         )
     }
     
-    private func calculateRMS(_ samples: [Float]) -> Float {
-        guard !samples.isEmpty else { return 0.0 }
+    private func calculateRMS(_ buffer: AVAudioPCMBuffer) -> Float {
+        guard let channelData = buffer.floatChannelData?[0] else { return 0.0 }
         
         var rms: Float = 0.0
-        vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
+        vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(buffer.frameLength))
         return rms
     }
 

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+@preconcurrency import AVFoundation
 
 /// Simplified caption entry for clean display
 struct CaptionEntry: Identifiable, Sendable {
@@ -59,23 +60,29 @@ struct AudioVADResult: Sendable {
 }
 
 struct AudioFrameWithVAD: Sendable {
-    let samples: [Float]
+    let buffer: AVAudioPCMBuffer
     let vadResult: AudioVADResult
     let source: AudioSource
     let frameIndex: Int
-    let sampleRate: Double
     
     // Convenience properties
     var isSpeech: Bool { vadResult.isSpeech }
     var confidence: Float { vadResult.confidence }
     var rmsEnergy: Float { vadResult.rmsEnergy }
     var timestamp: Date { vadResult.timestamp }
+    var sampleRate: Double { buffer.format.sampleRate }
+    var frameLength: Int { Int(buffer.frameLength) }
     
-    init(samples: [Float], vadResult: AudioVADResult, source: AudioSource, frameIndex: Int, sampleRate: Double = 16000.0) {
-        self.samples = samples
+    // Convenience accessor for when float samples are specifically needed (debugging, etc.)
+    var samples: [Float] {
+        guard let channelData = buffer.floatChannelData?[0] else { return [] }
+        return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
+    }
+    
+    init(buffer: AVAudioPCMBuffer, vadResult: AudioVADResult, source: AudioSource, frameIndex: Int) {
+        self.buffer = buffer
         self.vadResult = vadResult
         self.source = source
         self.frameIndex = frameIndex
-        self.sampleRate = sampleRate
     }
 }

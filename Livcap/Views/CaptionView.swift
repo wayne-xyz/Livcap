@@ -8,12 +8,16 @@ import SwiftUI
 
 struct CaptionView: View {
     
-    @StateObject private var caption = CaptionViewModel()
+    @StateObject private var captionViewModel: CaptionViewModel
     @State private var isPinned = false
     @State private var isHovering = false
     @State private var showWindowControls = false
     
     private let opacityLevel: Double = 0.7
+    
+    init() {
+        _captionViewModel = StateObject(wrappedValue: CaptionViewModel())
+    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -41,11 +45,11 @@ struct CaptionView: View {
         }
         .onDisappear {
             // Stop audio sources when window closes
-            if caption.isMicrophoneEnabled {
-                caption.toggleMicrophone()
+            if captionViewModel.isMicrophoneEnabled {
+                captionViewModel.toggleMicrophone()
             }
-            if caption.isSystemAudioEnabled {
-                caption.toggleSystemAudio()
+            if captionViewModel.isSystemAudioEnabled {
+                captionViewModel.toggleSystemAudio()
             }
         }
     }
@@ -64,7 +68,7 @@ struct CaptionView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         // Caption history (older sentences at top)
-                        ForEach(caption.captionHistory) { entry in
+                        ForEach(captionViewModel.captionHistory) { entry in
                             Text(entry.text)
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundColor(.primary)
@@ -80,8 +84,8 @@ struct CaptionView: View {
                         }
                         
                         // Current transcription (real-time at bottom)
-                        if !caption.currentTranscription.isEmpty {
-                            Text(caption.currentTranscription+"...")
+                        if !captionViewModel.currentTranscription.isEmpty {
+                            Text(captionViewModel.currentTranscription+"...")
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundColor(.primary)
                                 .padding(.horizontal, 20)
@@ -94,17 +98,17 @@ struct CaptionView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
                 }
-                .onChange(of: caption.currentTranscription) {
-                    if !caption.currentTranscription.isEmpty {
+                .onChange(of: captionViewModel.currentTranscription) {
+                    if !captionViewModel.currentTranscription.isEmpty {
                         withAnimation(.easeOut(duration: 0.3)) {
                             proxy.scrollTo("currentTranscription", anchor: .bottom)
                         }
                     }
                 }
-                .onChange(of: caption.captionHistory.count) {
+                .onChange(of: captionViewModel.captionHistory.count) {
                     // Auto-scroll when new caption is added
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        if let lastEntry = caption.captionHistory.last {
+                        if let lastEntry = captionViewModel.captionHistory.last {
                             withAnimation(.easeOut(duration: 0.3)) {
                                 proxy.scrollTo(lastEntry.id, anchor: .bottom)
                             }
@@ -153,7 +157,7 @@ struct CaptionView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         // Caption history (older sentences at top)
-                        ForEach(caption.captionHistory) { entry in
+                        ForEach(captionViewModel.captionHistory) { entry in
                             Text(entry.text)
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundColor(.primary)
@@ -169,8 +173,8 @@ struct CaptionView: View {
                         }
                         
                         // Current transcription (real-time at bottom)
-                        if !caption.currentTranscription.isEmpty {
-                            Text(caption.currentTranscription+"...")
+                        if !captionViewModel.currentTranscription.isEmpty {
+                            Text(captionViewModel.currentTranscription+"...")
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundColor(.primary)
                                 .padding(.horizontal, 20)
@@ -183,17 +187,17 @@ struct CaptionView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
                 }
-                .onChange(of: caption.currentTranscription) {
-                    if !caption.currentTranscription.isEmpty {
+                .onChange(of: captionViewModel.currentTranscription) {
+                    if !captionViewModel.currentTranscription.isEmpty {
                         withAnimation(.easeOut(duration: 0.3)) {
                             proxy.scrollTo("currentTranscription", anchor: .bottom)
                         }
                     }
                 }
-                .onChange(of: caption.captionHistory.count) {
+                .onChange(of: captionViewModel.captionHistory.count) {
                     // Auto-scroll when new caption is added
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        if let lastEntry = caption.captionHistory.last {
+                        if let lastEntry = captionViewModel.captionHistory.last {
                             withAnimation(.easeOut(duration: 0.3)) {
                                 proxy.scrollTo(lastEntry.id, anchor: .bottom)
                             }
@@ -234,45 +238,27 @@ struct CaptionView: View {
     @ViewBuilder
     private func systemAudioToggleButton() -> some View {
         Button(action: {
-            caption.toggleSystemAudio()
+            captionViewModel.toggleSystemAudio()
         }) {
-            Image(systemName: caption.isSystemAudioEnabled ? "macbook" : "macbook.slash")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(caption.isSystemAudioEnabled ? .primary : .secondary)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.5)
-                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-                )
+            Image(systemName: captionViewModel.isSystemAudioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                .font(.system(size: 20))
+                .foregroundColor(captionViewModel.isSystemAudioEnabled ? .accentColor : .gray)
         }
         .buttonStyle(PlainButtonStyle())
-        .help(caption.isSystemAudioEnabled ? "Disable system audio" : "Enable system audio")
-        .opacity(isHovering ? 1.0 : 0.0)
-        .animation(.easeInOut(duration: 0.2), value: isHovering)
+        .help("Toggle System Audio")
     }
     
     @ViewBuilder
     private func micToggleButton() -> some View {
         Button(action: {
-            caption.toggleMicrophone()
+            captionViewModel.toggleMicrophone()
         }) {
-            Image(systemName: caption.isMicrophoneEnabled ? "mic.fill" : "mic.slash")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(caption.isMicrophoneEnabled ? .primary : .secondary)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.5)
-                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-                )
+            Image(systemName: captionViewModel.isMicrophoneEnabled ? "mic.fill" : "mic.slash.fill")
+                .font(.system(size: 20))
+                .foregroundColor(captionViewModel.isMicrophoneEnabled ? .accentColor : .gray)
         }
         .buttonStyle(PlainButtonStyle())
-        .help(caption.isMicrophoneEnabled ? "Disable microphone" : "Enable microphone")
-        .opacity(isHovering ? 1.0 : 0.0)
-        .animation(.easeInOut(duration: 0.2), value: isHovering)
+        .help("Toggle Microphone")
     }
     
     

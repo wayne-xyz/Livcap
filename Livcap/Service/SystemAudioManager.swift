@@ -881,21 +881,25 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
                 
                 // Process accumulated buffer when we have enough samples
                 while self.accumulatedBuffer.count >= self.targetBufferSize {
-                    let bufferToYield = Array(self.accumulatedBuffer.prefix(self.targetBufferSize))
+                    let bufferSamples = Array(self.accumulatedBuffer.prefix(self.targetBufferSize))
                     self.accumulatedBuffer.removeFirst(self.targetBufferSize)
                     
-                    self.logger.info("💻 ACCUMULATED \(bufferToYield.count) samples, yielding to stream (target: \(self.targetBufferSize))")
+                    self.logger.info("💻 ACCUMULATED \(bufferSamples.count) samples, creating buffer for processing (target: \(self.targetBufferSize))")
                     
-                    // Send accumulated buffer to stream
-                    if let continuation = self.audioBufferContinuation {
-                        continuation.yield(bufferToYield)
-                        self.logger.info("💻 ✅ YIELDED \(bufferToYield.count) accumulated samples to AsyncStream")
-                    } else {
-                        self.logger.warning("💻 ❌ audioBufferContinuation is nil, samples not sent to stream")
+                    // Create AVAudioPCMBuffer from accumulated samples
+                    guard let accumulatedPCMBuffer = self.createPCMBuffer(from: bufferSamples) else {
+                        self.logger.warning("💻 Failed to create PCM buffer from accumulated samples")
+                        continue
                     }
                     
-                    // Process VAD and yield enhanced frame
-                    self.processSystemAudioFrameWithVAD(bufferToYield)
+                    // Send accumulated buffer to legacy stream if needed
+                    if let continuation = self.audioBufferContinuation {
+                        continuation.yield(bufferSamples)
+                        self.logger.info("💻 ✅ YIELDED \(bufferSamples.count) accumulated samples to AsyncStream")
+                    }
+                    
+                    // Process VAD with buffer-based approach
+                    self.processSystemAudioBufferWithVAD(accumulatedPCMBuffer)
                 }
             }
         }
@@ -1045,42 +1049,51 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
     
     // MARK: - VAD Processing
     
-    private func processSystemAudioFrameWithVAD(_ samples: [Float]) {
+    private func processSystemAudioBufferWithVAD(_ buffer: AVAudioPCMBuffer) {
         frameCounter += 1
         
-        // Process VAD
-        let isSpeech = vadProcessor.processAudioChunk(samples)
+        // Process VAD using new buffer-based method
+        let vadResult = vadProcessor.processAudioBuffer(buffer)
         
-        // Calculate RMS energy
-        let rmsEnergy = calculateRMS(samples)
-        
-        // Create VAD result
-        let vadResult = AudioVADResult(
-            isSpeech: isSpeech,
-            confidence: isSpeech ? 0.8 : 0.2, // Simple confidence based on VAD decision
-            rmsEnergy: rmsEnergy
-        )
-        
-        // Create enhanced audio frame
+        // Create enhanced audio frame with buffer
         let audioFrame = AudioFrameWithVAD(
-            samples: samples,
+            buffer: buffer,
             vadResult: vadResult,
             source: .systemAudio,
-            frameIndex: frameCounter,
-            sampleRate: Config.sampleRate
+            frameIndex: frameCounter
         )
         
         // Yield enhanced frame
         vadAudioStreamContinuation?.yield(audioFrame)
         
-        // Debug logging
+        // Debug logging (using convenience samples property when needed)
         AudioDebugLogger.shared.logAudioFrame(
             source: .systemAudio,
             frameIndex: frameCounter,
-            samples: samples,
-            sampleRate: Config.sampleRate,
-            vadDecision: isSpeech
+            samples: audioFrame.samples,
+            sampleRate: audioFrame.sampleRate,
+            vadDecision: vadResult.isSpeech
         )
+    }
+    
+    // MARK: - Buffer Creation Helper
+    
+    private func createPCMBuffer(from samples: [Float]) -> AVAudioPCMBuffer? {
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: targetFormat,
+            frameCapacity: AVAudioFrameCount(samples.count)
+        ) else { return nil }
+        
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        
+        guard let channelData = buffer.floatChannelData?[0] else { return nil }
+        
+        // Copy samples to buffer
+        for (index, sample) in samples.enumerated() {
+            channelData[index] = sample
+        }
+        
+        return buffer
     }
     
     // MARK: - Utilities
@@ -1364,4 +1377,39 @@ enum PermissionStatus: String, CaseIterable {
             return "exclamationmark.triangle.fill"
         }
     }
+}
+
+extension AudioDeviceID {
+    func getDeviceName() -> String {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyElementName, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var dataSize: UInt32 = 0
+        var name: CFString = "" as CFString
+        
+        let err1 = AudioObjectGetPropertyDataSize(self, &address, 0, nil, &dataSize)
+        if err1 == noErr {
+            let err2 = AudioObjectGetPropertyData(self, &address, 0, nil, &dataSize, &name)
+            if err2 == noErr {
+                return name as String
+            }
+        }
+        
+        return "Unknown Device"
+    }
+}
+
+// Helper to get the default output device ID
+private func getDefaultOutputDeviceID() throws -> AudioDeviceID {
+    var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    var dataSize: UInt32 = 0
+    var deviceID: AudioDeviceID = 0
+    
+    let err = AudioObjectGetPropertyDataSize(AudioObjectID.system, &address, 0, nil, &dataSize)
+    if err == noErr {
+        let err2 = AudioObjectGetPropertyData(AudioObjectID.system, &address, 0, nil, &dataSize, &deviceID)
+        if err2 == noErr {
+            return deviceID
+        }
+    }
+    
+    throw SystemAudioError.processNotFound("Failed to get default output device ID")
 } 

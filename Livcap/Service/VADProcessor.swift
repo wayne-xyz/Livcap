@@ -19,6 +19,52 @@ final class VADProcessor {
     private var consecutiveSilenceFrames: Int = 0
     private var lastIsSpeechDecision: Bool = false // State variable
 
+    // MARK: - Buffer-based VAD Processing (New Optimized Method)
+    
+    func processAudioBuffer(_ buffer: AVAudioPCMBuffer) -> AudioVADResult {
+        guard let channelData = buffer.floatChannelData?[0] else {
+            return AudioVADResult(isSpeech: false, confidence: 0.0, rmsEnergy: 0.0)
+        }
+        
+        // Calculate RMS directly on buffer data - no copying needed!
+        var rms: Float = 0.0
+        vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(buffer.frameLength))
+        
+        let currentChunkIsAboveThreshold = rms > energyThreshold
+        
+        // Apply state machine logic
+        if currentChunkIsAboveThreshold {
+            consecutiveSpeechFrames += 1
+            consecutiveSilenceFrames = 0
+        } else {
+            consecutiveSilenceFrames += 1
+            consecutiveSpeechFrames = 0
+        }
+
+        var newIsSpeechDecision = lastIsSpeechDecision
+
+        if consecutiveSpeechFrames >= speechCountThreshold {
+            newIsSpeechDecision = true
+        } else if consecutiveSilenceFrames >= silenceCountThreshold {
+            newIsSpeechDecision = false
+        }
+        
+        lastIsSpeechDecision = newIsSpeechDecision
+        
+        // Calculate confidence based on how much energy exceeds threshold
+        let confidence: Float = newIsSpeechDecision ? 
+            min(1.0, rms / (energyThreshold * 3.0)) : 
+            max(0.0, 1.0 - (rms / energyThreshold))
+        
+        return AudioVADResult(
+            isSpeech: newIsSpeechDecision,
+            confidence: confidence,
+            rmsEnergy: rms
+        )
+    }
+
+    // MARK: - Legacy Float Array Method (for compatibility)
+    
     func processAudioChunk(_ samples: [Float]) -> Bool {
         var rms: Float = 0.0
         vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
