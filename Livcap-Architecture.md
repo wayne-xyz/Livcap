@@ -1,4 +1,4 @@
-# Livcap SwiftUI Architecture Design(Concept - Not Implemented)
+# Livcap SwiftUI Architecture Design(Concept - Not Implemented, maybe in the future version can be implemented.)
 ## Beyond MVVM: A Modern SwiftUI-Native Approach
 
 *Inspired by Thomas Ricouard's ["SwiftUI in 2025: Forget MVVM"](https://dimillian.medium.com/swiftui-in-2025-forget-mvvm-262ff2bbd2ed)*
