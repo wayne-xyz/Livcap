@@ -11,13 +11,13 @@ import AVFoundation
 import Combine
 import os.log
 
-// MARK: - Protocol
+// MARK: - Speech Events
 
-protocol SpeechRecognitionManagerDelegate: AnyObject {
-    func speechRecognitionDidUpdateTranscription(_ manager: SpeechRecognitionManager, newText: String)
-    func speechRecognitionDidFinalizeSentence(_ manager: SpeechRecognitionManager, sentence: String)
-    func speechRecognitionDidEncounterError(_ manager: SpeechRecognitionManager, error: Error)
-    func speechRecognitionStatusDidChange(_ manager: SpeechRecognitionManager, status: String)
+enum SpeechEvent: Sendable {
+    case transcriptionUpdate(String)
+    case sentenceFinalized(String)
+    case statusChanged(String)
+    case error(Error)
 }
 
 // MARK: - SpeechRecognitionManager
@@ -46,11 +46,12 @@ final class SpeechRecognitionManager: ObservableObject {
     private let sentenceTimeoutDuration: TimeInterval = 2.0 // 2 seconds of silence to end sentence
     private var currentSpeechState: Bool = false
     
+    // AsyncStream for events
+    private var speechEventsContinuation: AsyncStream<SpeechEvent>.Continuation?
+    private var speechEventsStream: AsyncStream<SpeechEvent>?
+    
     // Logging
     private let logger = Logger(subsystem: "com.livcap.speech", category: "SpeechRecognitionManager")
-    
-    // Delegate
-    weak var delegate: SpeechRecognitionManagerDelegate?
     
     // MARK: - Initialization
     
@@ -61,6 +62,24 @@ final class SpeechRecognitionManager: ObservableObject {
     
     deinit {
         stopRecording()
+        speechEventsContinuation?.finish()
+    }
+    
+    // MARK: - AsyncStream Interface
+    
+    func speechEvents() -> AsyncStream<SpeechEvent> {
+        if let stream = speechEventsStream {
+            return stream
+        }
+        
+        speechEventsStream = AsyncStream { continuation in
+            self.speechEventsContinuation = continuation
+            continuation.onTermination = { @Sendable [weak self] _ in
+                self?.logger.info("🛑 Speech events stream terminated")
+            }
+        }
+        
+        return speechEventsStream!
     }
     
     // MARK: - Setup
@@ -68,40 +87,44 @@ final class SpeechRecognitionManager: ObservableObject {
     private func setupSpeechRecognition() {
         // Request authorization
         SFSpeechRecognizer.requestAuthorization { [weak self] authStatus in
-            DispatchQueue.main.async {
+            guard let self = self else { return }
+            
+            Task { @MainActor in
+                let status: String
                 switch authStatus {
                 case .authorized:
-                    self?.statusText = "Ready to record"
+                    status = "Ready to record"
                 case .denied:
-                    self?.statusText = "Speech recognition permission denied"
+                    status = "Speech recognition permission denied"
                 case .restricted:
-                    self?.statusText = "Speech recognition restricted"
+                    status = "Speech recognition restricted"
                 case .notDetermined:
-                    self?.statusText = "Speech recognition not determined"
+                    status = "Speech recognition not determined"
                 @unknown default:
-                    self?.statusText = "Speech recognition authorization unknown"
+                    status = "Speech recognition authorization unknown"
                 }
                 
-                if let self = self {
-                    self.delegate?.speechRecognitionStatusDidChange(self, status: self.statusText)
-                }
+                self.statusText = status
+                self.speechEventsContinuation?.yield(.statusChanged(status))
             }
         }
     }
     
     // MARK: - Public Interface
     
-    func startRecording() {
+    func startRecording() async throws {
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
-            statusText = "Speech recognizer not available"
-            delegate?.speechRecognitionStatusDidChange(self, status: statusText)
-            return
+            let error = SpeechRecognitionError.recognizerNotAvailable
+            await updateStatus("Speech recognizer not available")
+            speechEventsContinuation?.yield(.error(error))
+            throw error
         }
         
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            statusText = "Speech recognition not authorized"
-            delegate?.speechRecognitionStatusDidChange(self, status: statusText)
-            return
+            let error = SpeechRecognitionError.notAuthorized
+            await updateStatus("Speech recognition not authorized")
+            speechEventsContinuation?.yield(.error(error))
+            throw error
         }
         
         logger.info("🔴 STARTING SPEECH RECOGNITION ENGINE")
@@ -113,9 +136,10 @@ final class SpeechRecognitionManager: ObservableObject {
         // Create recognition request
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest = recognitionRequest else {
-            statusText = "Failed to create recognition request"
-            delegate?.speechRecognitionStatusDidChange(self, status: statusText)
-            return
+            let error = SpeechRecognitionError.requestCreationFailed
+            await updateStatus("Failed to create recognition request")
+            speechEventsContinuation?.yield(.error(error))
+            throw error
         }
         
         recognitionRequest.shouldReportPartialResults = true
@@ -124,26 +148,24 @@ final class SpeechRecognitionManager: ObservableObject {
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self = self else { return }
             
-            if let error = error {
-                DispatchQueue.main.async {
-                    self.statusText = "Recognition error: \(error.localizedDescription)"
-                    self.delegate?.speechRecognitionDidEncounterError(self, error: error)
-                    self.delegate?.speechRecognitionStatusDidChange(self, status: self.statusText)
+            Task {
+                if let error = error {
+                    await self.updateStatus("Recognition error: \(error.localizedDescription)")
+                    self.speechEventsContinuation?.yield(.error(error))
+                    return
                 }
-                return
-            }
-            
-            if let result = result {
-                let transcription = result.bestTranscription.formattedString
                 
-                DispatchQueue.main.async {
-                    self.processTranscriptionResult(transcription)
+                if let result = result {
+                    let transcription = result.bestTranscription.formattedString
+                    await self.processTranscriptionResult(transcription)
                 }
             }
         }
         
-        isRecording = true
-        currentTranscription = ""
+        await MainActor.run {
+            self.isRecording = true
+            self.currentTranscription = ""
+        }
         
         // Reset state
         processedTextLength = 0
@@ -167,13 +189,15 @@ final class SpeechRecognitionManager: ObservableObject {
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         
-        isRecording = false
-        
-        // Add final transcription to history if not empty
-        if !currentTranscription.isEmpty {
-            addToHistory(currentTranscription)
-            delegate?.speechRecognitionDidFinalizeSentence(self, sentence: currentTranscription)
-            currentTranscription = ""
+        Task { @MainActor in
+            self.isRecording = false
+            
+            // Add final transcription to history if not empty
+            if !self.currentTranscription.isEmpty {
+                self.addToHistory(self.currentTranscription)
+                self.speechEventsContinuation?.yield(.sentenceFinalized(self.currentTranscription))
+                self.currentTranscription = ""
+            }
         }
         
         // Reset text tracking
@@ -217,13 +241,22 @@ final class SpeechRecognitionManager: ObservableObject {
             let silenceDuration = Date().timeIntervalSince(silenceStartTime)
             if silenceDuration >= sentenceTimeoutDuration {
                 logger.info("⏰ SENTENCE TIMEOUT after \(String(format: "%.1f", silenceDuration))s silence")
-                finalizeSentence()
+                Task {
+                    await finalizeSentence()
+                }
             }
         }
     }
     
     // MARK: - Private Methods
     
+    @MainActor
+    private func updateStatus(_ status: String) {
+        statusText = status
+        speechEventsContinuation?.yield(.statusChanged(status))
+    }
+    
+    @MainActor
     private func processTranscriptionResult(_ transcription: String) {
         // Store the full transcription from SFSpeechRecognizer
         let previousFullLength = fullTranscriptionText.count
@@ -233,8 +266,8 @@ final class SpeechRecognitionManager: ObservableObject {
         let newPart = extractNewTranscriptionPart(from: transcription)
         currentTranscription = newPart
         
-        // Notify delegate of transcription update
-        delegate?.speechRecognitionDidUpdateTranscription(self, newText: newPart)
+        // Notify via AsyncStream
+        speechEventsContinuation?.yield(.transcriptionUpdate(newPart))
         
         // If new text was added, reset silence timer if we're currently in silence
         if transcription.count > previousFullLength {
@@ -254,6 +287,7 @@ final class SpeechRecognitionManager: ObservableObject {
         return ""
     }
     
+    @MainActor
     private func finalizeSentence() {
         if !currentTranscription.isEmpty {
             logger.info("📝 FINALIZING SENTENCE: \(self.currentTranscription)")
@@ -261,8 +295,8 @@ final class SpeechRecognitionManager: ObservableObject {
             // Add the current sentence part to history
             addToHistory(currentTranscription)
             
-            // Notify delegate
-            delegate?.speechRecognitionDidFinalizeSentence(self, sentence: currentTranscription)
+            // Notify via AsyncStream
+            speechEventsContinuation?.yield(.sentenceFinalized(currentTranscription))
             
             // Update processed length to include what we just added
             processedTextLength = fullTranscriptionText.count
@@ -275,6 +309,7 @@ final class SpeechRecognitionManager: ObservableObject {
         }
     }
     
+    @MainActor
     private func addToHistory(_ text: String) {
         let entry = CaptionEntry(
             id: UUID(),
@@ -294,8 +329,29 @@ final class SpeechRecognitionManager: ObservableObject {
     // MARK: - Public Utility Methods
     
     func clearCaptions() {
-        captionHistory.removeAll()
-        currentTranscription = ""
-        logger.info("🗑️ CLEARED ALL CAPTIONS")
+        Task { @MainActor in
+            self.captionHistory.removeAll()
+            self.currentTranscription = ""
+            self.logger.info("🗑️ CLEARED ALL CAPTIONS")
+        }
     }
-} 
+}
+
+// MARK: - Error Types
+
+enum SpeechRecognitionError: Error, LocalizedError {
+    case recognizerNotAvailable
+    case notAuthorized
+    case requestCreationFailed
+    
+    var errorDescription: String? {
+        switch self {
+        case .recognizerNotAvailable:
+            return "Speech recognizer is not available"
+        case .notAuthorized:
+            return "Speech recognition is not authorized"
+        case .requestCreationFailed:
+            return "Failed to create speech recognition request"
+        }
+    }
+}

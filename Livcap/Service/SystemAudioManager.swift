@@ -116,13 +116,13 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
             }
             
             logger.info("System audio capture started successfully")
-            AudioDebugLogger.shared.logSystemAudioStatus(isEnabled: true)
+
         } catch {
             await MainActor.run {
                 self.errorMessage = error.localizedDescription
             }
             logger.error("Failed to start system audio capture: \(error.localizedDescription)")
-            AudioDebugLogger.shared.logSystemAudioStatus(isEnabled: false, error: error.localizedDescription)
+            
             throw error
         }
     }
@@ -141,10 +141,10 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
         }
         
         logger.info("System audio capture stopped")
-        AudioDebugLogger.shared.logSystemAudioStatus(isEnabled: false)
+
     }
     
-    /// Get system audio stream for mixing
+    /// Get system audio stream
     func systemAudioStream() -> AsyncStream<[Float]> {
         if let stream = audioStream {
             return stream
@@ -854,20 +854,12 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
                     (left + right) / 2.0
                 }
                 
-                self.logger.info("💻 STEREO TO MONO: Converted \(channelCount) channels to mono (\(frameCount) samples)")
             } else {
                 self.logger.warning("Unsupported channel count: \(channelCount)")
                 return
             }
             
-            // Enhanced debug logging with colors
-            AudioDebugLogger.shared.logAudioFrame(
-                source: .systemAudio,
-                frameIndex: systemAudioFrameCounter,
-                samples: samples,
-                sampleRate: targetFormatCapture.sampleRate,
-                vadDecision: nil
-            )
+
             
             // Update audio level for UI
             let rms = self.calculateRMS(samples)
@@ -929,9 +921,8 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
             return buffer
         }
         
-        logger.info("🔄 Converting audio format:")
-        logger.info("   From: \(buffer.format.channelCount) ch, \(buffer.format.sampleRate) Hz")
-        logger.info("   To: \(format.channelCount) ch, \(format.sampleRate) Hz")
+
+        logger.info("💻  Coverting From: \(buffer.format.channelCount) ch, \(buffer.format.sampleRate) Hz ,  To: \(format.channelCount) ch, \(format.sampleRate) Hz")
         
         // For stereo-to-mono conversion, we'll handle it manually in the extraction phase
         // Here we only handle sample rate conversion if needed, keeping original channel count
@@ -1066,14 +1057,7 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
         // Yield enhanced frame
         vadAudioStreamContinuation?.yield(audioFrame)
         
-        // Debug logging (using convenience samples property when needed)
-        AudioDebugLogger.shared.logAudioFrame(
-            source: .systemAudio,
-            frameIndex: frameCounter,
-            samples: audioFrame.samples,
-            sampleRate: audioFrame.sampleRate,
-            vadDecision: vadResult.isSpeech
-        )
+
     }
     
     // MARK: - Buffer Creation Helper

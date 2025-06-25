@@ -13,21 +13,65 @@ final class SpeechProcessor: ObservableObject {
     
     // MARK: - Private Properties
     private let speechRecognitionManager = SpeechRecognitionManager()
-    private var cancellables = Set<AnyCancellable>()
+    private var speechEventsTask: Task<Void, Never>?
     
     // Logging
     private let logger = Logger(subsystem: "com.livcap.audio", category: "SpeechProcessor")
 
     // MARK: - Initialization
     init() {
-        speechRecognitionManager.delegate = self
+        startListeningToSpeechEvents()
+    }
+    
+    deinit {
+        speechEventsTask?.cancel()
+    }
+    
+    // MARK: - Private Setup
+    
+    private func startListeningToSpeechEvents() {
+        speechEventsTask = Task {
+            let speechEvents = speechRecognitionManager.speechEvents()
+            
+            for await event in speechEvents {
+                await handleSpeechEvent(event)
+            }
+        }
+    }
+    
+    @MainActor
+    private func handleSpeechEvent(_ event: SpeechEvent) {
+        switch event {
+        case .transcriptionUpdate(let text):
+            // Trigger UI update for new transcription
+            objectWillChange.send()
+            
+        case .sentenceFinalized(let sentence):
+            // Trigger UI update for finalized sentence
+            objectWillChange.send()
+            logger.info("📝 FINALIZED SENTENCE: \(sentence)")
+            
+        case .statusChanged(let status):
+            // Could publish status changes to UI if needed
+            logger.info("📊 STATUS CHANGED: \(status)")
+            
+        case .error(let error):
+            logger.error("❌ SPEECH RECOGNITION ERROR: \(error.localizedDescription)")
+            // In a real app, you might want to publish this error to the UI
+        }
     }
     
     // MARK: - Public Control
     
     func startProcessing() {
-        speechRecognitionManager.startRecording()
-        logger.info("🎙️ SpeechProcessor processing started.")
+        Task {
+            do {
+                try await speechRecognitionManager.startRecording()
+                logger.info("🎙️ SpeechProcessor processing started.")
+            } catch {
+                logger.error("❌ Failed to start speech processing: \(error.localizedDescription)")
+            }
+        }
     }
     
     func stopProcessing() {
@@ -47,14 +91,14 @@ final class SpeechProcessor: ObservableObject {
         
         // Detect speech state transitions
         if isSpeech != currentSpeechState {
-            AudioDebugLogger.shared.logVADTransition(from: currentSpeechState, to: isSpeech)
-            
-            if isSpeech {
-                logger.info("🗣️ \(audioFrame.source.rawValue.uppercased()) SPEECH START detected")
-            } else {
-                logger.info("🤫 \(audioFrame.source.rawValue.uppercased()) SPEECH END detected")
+            Task { @MainActor in
+                if isSpeech {
+                    self.logger.info("🗣️ \(audioFrame.source.rawValue.uppercased()) SPEECH START detected")
+                } else {
+                    self.logger.info("🤫 \(audioFrame.source.rawValue.uppercased()) SPEECH END detected")
+                }
+                self.currentSpeechState = isSpeech
             }
-            currentSpeechState = isSpeech
         }
     }
     
@@ -63,24 +107,3 @@ final class SpeechProcessor: ObservableObject {
         logger.info("🗑️ CLEARED ALL CAPTIONS")
     }
 }
-
-// MARK: - SpeechRecognitionManagerDelegate
-extension SpeechProcessor: SpeechRecognitionManagerDelegate {
-    func speechRecognitionDidUpdateTranscription(_ manager: SpeechRecognitionManager, newText: String) {
-        self.objectWillChange.send()
-    }
-    
-    func speechRecognitionDidFinalizeSentence(_ manager: SpeechRecognitionManager, sentence: String) {
-        self.objectWillChange.send()
-        logger.info("📝 FINALIZED SENTENCE: \(sentence)")
-    }
-    
-    func speechRecognitionDidEncounterError(_ manager: SpeechRecognitionManager, error: Error) {
-        logger.error("❌ SPEECH RECOGNITION ERROR: \(error.localizedDescription)")
-        // In a real app, you might want to publish this error to the UI
-    }
-    
-    func speechRecognitionStatusDidChange(_ manager: SpeechRecognitionManager, status: String) {
-        // This could also be published to the UI if needed
-    }
-} 

@@ -30,7 +30,9 @@ final class MicAudioManager: ObservableObject {
 
     // MARK: - Private Properties
     private var audioEngine: AVAudioEngine?
-    private let inputNode: AVAudioInputNode
+    private var inputNode: AVAudioInputNode? {
+        audioEngine?.inputNode
+    }
     private var audioStreamContinuation: AsyncStream<[Float]>.Continuation?
     private var audioStream: AsyncStream<[Float]>?
     
@@ -45,7 +47,6 @@ final class MicAudioManager: ObservableObject {
     // MARK: - Initialization
     init() {
         self.audioEngine = AVAudioEngine()
-        self.inputNode = audioEngine!.inputNode
     }
     
     deinit {
@@ -113,6 +114,13 @@ final class MicAudioManager: ObservableObject {
         // On macOS, we don't need to configure an AVAudioSession.
         // The engine will use the system's default input device.
         
+        guard let inputNode = inputNode else {
+            print("Failed to get audio input node.")
+            audioStreamContinuation?.finish()
+            vadAudioStreamContinuation?.finish()
+            return
+        }
+        
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         guard let processingFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -163,7 +171,7 @@ final class MicAudioManager: ObservableObject {
         guard isRecording, let engine = audioEngine, engine.isRunning else { return }
         
         engine.stop()
-        inputNode.removeTap(onBus: 0)
+        inputNode?.removeTap(onBus: 0)
         
         Task{ @MainActor in
             self.isRecording = false
@@ -191,27 +199,12 @@ final class MicAudioManager: ObservableObject {
             source: .microphone,
             frameIndex: frameCounter
         )
-        
         // Yield enhanced frame
         vadAudioStreamContinuation?.yield(audioFrame)
         
-        // Debug logging (using convenience samples property when needed)
-        AudioDebugLogger.shared.logAudioFrame(
-            source: .microphone,
-            frameIndex: frameCounter,
-            samples: audioFrame.samples,
-            sampleRate: audioFrame.sampleRate,
-            vadDecision: vadResult.isSpeech
-        )
+
     }
     
-    private func calculateRMS(_ buffer: AVAudioPCMBuffer) -> Float {
-        guard let channelData = buffer.floatChannelData?[0] else { return 0.0 }
-        
-        var rms: Float = 0.0
-        vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(buffer.frameLength))
-        return rms
-    }
 
     
     

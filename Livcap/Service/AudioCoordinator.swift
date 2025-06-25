@@ -14,12 +14,9 @@ final class AudioCoordinator {
     // Audio managers
     private let micAudioManager = MicAudioManager()
     private var systemAudioManager: SystemAudioProtocol?
-    private var audioMixingService: AudioMixingService?
     
-    // Audio source tasks
-    private var microphoneStreamTask: Task<Void, Never>?
-    private var systemAudioStreamTask: Task<Void, Never>?
-    private var mixedAudioStreamTask: Task<Void, Never>?
+    // Audio source task (only one active at a time)
+    private var activeAudioStreamTask: Task<Void, Never>?
 
     // Logging
     private let logger = Logger(subsystem: "com.livcap.audio", category: "AudioCoordinator")
@@ -36,7 +33,6 @@ final class AudioCoordinator {
         // Initialize system audio components only if supported
         if #available(macOS 14.4, *) {
             systemAudioManager = SystemAudioManager()
-            audioMixingService = AudioMixingService()
         }
     }
     
@@ -48,6 +44,10 @@ final class AudioCoordinator {
         if isMicrophoneEnabled {
             stopMicrophone()
         } else {
+            // Stop system audio first if it's running
+            if isSystemAudioEnabled {
+                stopSystemAudio()
+            }
             startMicrophone()
         }
     }
@@ -58,6 +58,10 @@ final class AudioCoordinator {
         if isSystemAudioEnabled {
             stopSystemAudio()
         } else {
+            // Stop microphone first if it's running
+            if isMicrophoneEnabled {
+                stopMicrophone()
+            }
             startSystemAudio()
         }
     }
@@ -126,7 +130,7 @@ final class AudioCoordinator {
                 await MainActor.run {
                     self.logger.error("❌ System audio start error: \(error)")
                 }
-                AudioDebugLogger.shared.logSystemAudioStatus(isEnabled: false, error: error.localizedDescription)
+
             }
         }
     }
@@ -137,7 +141,6 @@ final class AudioCoordinator {
         guard isSystemAudioEnabled else { return }
         
         systemAudioManager?.stopCapture()
-        audioMixingService?.stopMixing()
         
         isSystemAudioEnabled = false
         logger.info("✅ SYSTEM AUDIO SOURCE STOPPED")
@@ -147,31 +150,38 @@ final class AudioCoordinator {
     
     func audioFrameStream() -> AsyncStream<AudioFrameWithVAD> {
         AsyncStream { continuation in
-            let micStream = micAudioManager.audioFramesWithVAD()
             
-            // Task for microphone stream
-            self.microphoneStreamTask = Task {
-                for await frame in micStream {
-                    continuation.yield(frame)
-                }
-            }
-            
-            // Task for system audio stream (only if available)
-            if #available(macOS 14.4, *) {
-                if let systemAudioManager = self.systemAudioManager as? SystemAudioManager {
-                    self.systemAudioStreamTask = Task {
-                        let systemStream = systemAudioManager.systemAudioStreamWithVAD()
-                        for await frame in systemStream {
+            // Create a task that switches between sources based on which is active
+            self.activeAudioStreamTask = Task {
+                while !Task.isCancelled {
+                    if self.isMicrophoneEnabled {
+                        let micStream = self.micAudioManager.audioFramesWithVAD()
+                        for await frame in micStream {
+                            if Task.isCancelled { break }
                             continuation.yield(frame)
                         }
+                    } else if self.isSystemAudioEnabled {
+                        if #available(macOS 14.4, *) {
+                            if let systemAudioManager = self.systemAudioManager as? SystemAudioManager {
+                                let systemStream = systemAudioManager.systemAudioStreamWithVAD()
+                                for await frame in systemStream {
+                                    if Task.isCancelled { break }
+                                    continuation.yield(frame)
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Small delay before checking again if no source is active
+                    if !self.isMicrophoneEnabled && !self.isSystemAudioEnabled {
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
                     }
                 }
             }
             
             continuation.onTermination = { @Sendable [weak self] _ in
-                self?.microphoneStreamTask?.cancel()
-                self?.systemAudioStreamTask?.cancel()
-                self?.logger.info("🛑 AudioCoordinator streams terminated.")
+                self?.activeAudioStreamTask?.cancel()
+                self?.logger.info("🛑 AudioCoordinator stream terminated.")
             }
         }
     }

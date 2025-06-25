@@ -26,13 +26,11 @@ struct CaptionEntry: Identifiable, Sendable {
 enum AudioSource: String, CaseIterable {
     case microphone = "microphone"
     case systemAudio = "systemAudio"
-    case mixed = "mixed"
     
     var displayName: String {
         switch self {
         case .microphone: return "Microphone"
         case .systemAudio: return "System Audio"
-        case .mixed: return "Mixed"
         }
     }
     
@@ -40,7 +38,6 @@ enum AudioSource: String, CaseIterable {
         switch self {
         case .microphone: return "🎤"
         case .systemAudio: return "💻"
-        case .mixed: return "🎵"
         }
     }
 }
