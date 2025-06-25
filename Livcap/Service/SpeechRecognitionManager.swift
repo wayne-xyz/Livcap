@@ -188,6 +188,41 @@ final class SpeechRecognitionManager: ObservableObject {
         recognitionRequest.append(buffer)
     }
     
+    func appendAudioBufferWithVAD(_ audioFrame: AudioFrameWithVAD) {
+        guard isRecording, let recognitionRequest = recognitionRequest else { return }
+        
+        // Convert samples to AVAudioPCMBuffer
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: audioFrame.sampleRate,
+            channels: 1,
+            interleaved: false
+        ) else { return }
+        
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(audioFrame.samples.count)
+        ) else { return }
+        
+        buffer.frameLength = AVAudioFrameCount(audioFrame.samples.count)
+        if let channelData = buffer.floatChannelData?[0] {
+            for (index, sample) in audioFrame.samples.enumerated() {
+                channelData[index] = sample
+            }
+        }
+        
+        // Append buffer to speech recognition
+        recognitionRequest.append(buffer)
+        
+        // Use VAD result for speech state management
+        if audioFrame.isSpeech {
+            onSpeechStart()
+        } else {
+            onSpeechEnd()
+            checkSentenceTimeout()
+        }
+    }
+    
     func onSpeechStart() {
         currentSpeechState = true
     }

@@ -44,6 +44,14 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
     private let targetBufferSize = 1024  // Match microphone buffer size for SFSpeechRecognizer
     private let bufferQueue = DispatchQueue(label: "SystemAudioBuffer", qos: .userInitiated)
     
+    // VAD Processing
+    private let vadProcessor = VADProcessor()
+    private var frameCounter: Int = 0
+    
+    // Enhanced audio stream with VAD
+    private var vadAudioStreamContinuation: AsyncStream<AudioFrameWithVAD>.Continuation?
+    private var vadAudioStream: AsyncStream<AudioFrameWithVAD>?
+    
     // Configuration
     private struct Config {
         static let sampleRate: Double = 16000.0  // Target sample rate
@@ -150,6 +158,23 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
         }
         
         self.audioStream = stream
+        return stream
+    }
+    
+    /// Get enhanced system audio stream with VAD metadata
+    func systemAudioStreamWithVAD() -> AsyncStream<AudioFrameWithVAD> {
+        if let stream = vadAudioStream {
+            return stream
+        }
+        
+        let stream = AsyncStream<AudioFrameWithVAD> { continuation in
+            self.vadAudioStreamContinuation = continuation
+            continuation.onTermination = { @Sendable [weak self] _ in
+                self?.stopCapture()
+            }
+        }
+        
+        self.vadAudioStream = stream
         return stream
     }
     
@@ -868,6 +893,9 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
                     } else {
                         self.logger.warning("💻 ❌ audioBufferContinuation is nil, samples not sent to stream")
                     }
+                    
+                    // Process VAD and yield enhanced frame
+                    self.processSystemAudioFrameWithVAD(bufferToYield)
                 }
             }
         }
@@ -993,10 +1021,18 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
             processTapID = .unknown
         }
         
-        // Close audio stream
+        // Close audio streams
         audioBufferContinuation?.finish()
         audioBufferContinuation = nil
         audioStream = nil
+        
+        vadAudioStreamContinuation?.finish()
+        vadAudioStreamContinuation = nil
+        vadAudioStream = nil
+        
+        // Reset VAD state
+        vadProcessor.reset()
+        frameCounter = 0
         
         // Clear accumulated buffer
         bufferQueue.async {
@@ -1005,6 +1041,46 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
         }
         
         logger.info("Audio tap cleanup completed")
+    }
+    
+    // MARK: - VAD Processing
+    
+    private func processSystemAudioFrameWithVAD(_ samples: [Float]) {
+        frameCounter += 1
+        
+        // Process VAD
+        let isSpeech = vadProcessor.processAudioChunk(samples)
+        
+        // Calculate RMS energy
+        let rmsEnergy = calculateRMS(samples)
+        
+        // Create VAD result
+        let vadResult = AudioVADResult(
+            isSpeech: isSpeech,
+            confidence: isSpeech ? 0.8 : 0.2, // Simple confidence based on VAD decision
+            rmsEnergy: rmsEnergy
+        )
+        
+        // Create enhanced audio frame
+        let audioFrame = AudioFrameWithVAD(
+            samples: samples,
+            vadResult: vadResult,
+            source: .systemAudio,
+            frameIndex: frameCounter,
+            sampleRate: Config.sampleRate
+        )
+        
+        // Yield enhanced frame
+        vadAudioStreamContinuation?.yield(audioFrame)
+        
+        // Debug logging
+        AudioDebugLogger.shared.logAudioFrame(
+            source: .systemAudio,
+            frameIndex: frameCounter,
+            samples: samples,
+            sampleRate: Config.sampleRate,
+            vadDecision: isSpeech
+        )
     }
     
     // MARK: - Utilities

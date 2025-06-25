@@ -33,6 +33,14 @@ final class MicAudioManager: ObservableObject {
     private let inputNode: AVAudioInputNode
     private var audioStreamContinuation: AsyncStream<[Float]>.Continuation?
     private var audioStream: AsyncStream<[Float]>?
+    
+    // VAD Processing
+    private let vadProcessor = VADProcessor()
+    private var frameCounter: Int = 0
+    
+    // Enhanced audio stream with VAD
+    private var vadAudioStreamContinuation: AsyncStream<AudioFrameWithVAD>.Continuation?
+    private var vadAudioStream: AsyncStream<AudioFrameWithVAD>?
 
     // MARK: - Initialization
     init() {
@@ -78,6 +86,22 @@ final class MicAudioManager: ObservableObject {
         return self.audioStream!
     }
     
+    // Enhanced consumer accessibility point with VAD metadata
+    func audioFramesWithVAD() -> AsyncStream<AudioFrameWithVAD> {
+        if let stream = vadAudioStream {
+            return stream
+        }
+        
+        self.vadAudioStream = AsyncStream { continuation in
+            self.vadAudioStreamContinuation = continuation
+            continuation.onTermination = { @Sendable [weak self] _ in
+                self?.stopRecording()
+            }
+        }
+        
+        return self.vadAudioStream!
+    }
+    
 
     // MARK: - Core Audio Logic
     private func startRecording() {
@@ -117,7 +141,12 @@ final class MicAudioManager: ObservableObject {
                 }
                 
                 let samples = Array(UnsafeBufferPointer(start: floatChannelData[0], count: Int(pcmBuffer.frameLength)))
+                
+                // Yield raw samples for legacy compatibility
                 self.audioStreamContinuation?.yield(samples)
+                
+                // Process VAD and yield enhanced frame
+                self.processAudioFrameWithVAD(samples)
             }
         }
 
@@ -143,6 +172,59 @@ final class MicAudioManager: ObservableObject {
             self.isRecording = false
         }
         audioStreamContinuation?.finish()
+        vadAudioStreamContinuation?.finish()
+        
+        // Reset VAD state
+        vadProcessor.reset()
+        frameCounter = 0
+    }
+    
+    // MARK: - VAD Processing
+    
+    private func processAudioFrameWithVAD(_ samples: [Float]) {
+        frameCounter += 1
+        
+        // Process VAD
+        let isSpeech = vadProcessor.processAudioChunk(samples)
+        
+        // Calculate RMS energy
+        let rmsEnergy = calculateRMS(samples)
+        
+        // Create VAD result
+        let vadResult = AudioVADResult(
+            isSpeech: isSpeech,
+            confidence: isSpeech ? 0.8 : 0.2, // Simple confidence based on VAD decision
+            rmsEnergy: rmsEnergy
+        )
+        
+        // Create enhanced audio frame
+        let audioFrame = AudioFrameWithVAD(
+            samples: samples,
+            vadResult: vadResult,
+            source: .microphone,
+            frameIndex: frameCounter,
+            sampleRate: targetSampleRate
+        )
+        
+        // Yield enhanced frame
+        vadAudioStreamContinuation?.yield(audioFrame)
+        
+        // Debug logging
+        AudioDebugLogger.shared.logAudioFrame(
+            source: .microphone,
+            frameIndex: frameCounter,
+            samples: samples,
+            sampleRate: targetSampleRate,
+            vadDecision: isSpeech
+        )
+    }
+    
+    private func calculateRMS(_ samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0.0 }
+        
+        var rms: Float = 0.0
+        vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
+        return rms
     }
 
     
