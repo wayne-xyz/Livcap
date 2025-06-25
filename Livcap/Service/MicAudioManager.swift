@@ -21,7 +21,7 @@ import Accelerate
 final class MicAudioManager: ObservableObject {
     // configuration constatn
     private let frameBufferSize: Int = 4800 // 100ms = 4800/48k float32 , a frame buffer is 4800sample.
-    private let downSampleRate: Double = 16000.0  // conver the 48k to 16k 
+    private let targetSampleRate: Double = 16000.0  // conver the 48k to 16k  , downsampling the input to the sfspeech
     
     
 
@@ -92,7 +92,7 @@ final class MicAudioManager: ObservableObject {
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         guard let processingFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
-            sampleRate: downSampleRate,
+            sampleRate: targetSampleRate,
             channels: 1,
             interleaved: false
         ) else {

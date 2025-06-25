@@ -4,6 +4,9 @@
 //
 //  Created by Rongwei Ji on 6/9/25.
 //
+// CaptionViewmodel is conductor role in the caption view for the main function
+// working with MicAudioManager and SystemAudioManager to accesp two reosuces audio
+// working with the display
 
 import Foundation
 import Combine
@@ -13,7 +16,7 @@ import Accelerate
 import os.log
 
 /// CaptionViewModel for real-time speech recognition using SFSpeechRecognizer
-final class CaptionViewModel: ObservableObject {
+final class CaptionViewModel: ObservableObject, SpeechRecognitionManagerDelegate {
     
     // MARK: - Published Properties for UI
     
@@ -21,20 +24,20 @@ final class CaptionViewModel: ObservableObject {
     @Published private(set) var isMicrophoneEnabled = false
     @Published private(set) var isSystemAudioEnabled = false
     @Published var statusText: String = "Ready to record"
-    @Published var captionHistory: [CaptionEntry] = []
-    @Published var currentTranscription: String = ""
+    
+    // Forwarded from SpeechRecognitionManager
+    var captionHistory: [CaptionEntry] { speechRecognitionManager.captionHistory }
+    var currentTranscription: String { speechRecognitionManager.currentTranscription }
     
     // MARK: - Private Properties
     
-    private let speechRecognizer: SFSpeechRecognizer?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private var audioEngine: AVAudioEngine?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    // Audio managers
+    private let micAudioManager = MicAudioManager()
+    private let speechRecognitionManager = SpeechRecognitionManager()
     
     // System audio components (available on macOS 14.4+)
     private var systemAudioManager: SystemAudioProtocol?
     private var audioMixingService: AudioMixingService?
-    private var systemAudioPermissionManager: SystemAudioPermissionManager
     
     private var cancellables = Set<AnyCancellable>()
     
@@ -44,16 +47,10 @@ final class CaptionViewModel: ObservableObject {
     private var mixedAudioStreamTask: Task<Void, Never>?
     
     
-    // MARK: - VAD and Sentence Segmentation Properties
+    // MARK: - VAD Properties
     
     private let vadProcessor = VADProcessor()
     private var currentSpeechState: Bool = false
-    private var silenceStartTime: Date = Date()
-    private let sentenceTimeoutDuration: TimeInterval = 2.0 // 2 seconds of silence to end sentence
-    
-    // Track processed text to avoid duplication
-    private var processedTextLength: Int = 0
-    private var fullTranscriptionText: String = ""
     
     // MARK: - Logging
     private let logger = Logger(subsystem: "com.livcap.audio", category: "CaptionViewModel")
@@ -62,8 +59,6 @@ final class CaptionViewModel: ObservableObject {
     // MARK: - Initialization
     
     init() {
-        self.speechRecognizer = SFSpeechRecognizer(locale: Locale.current)
-        self.systemAudioPermissionManager = SystemAudioPermissionManager()
         setupSpeechRecognition()
         setupSystemAudioComponents()
     }
@@ -71,32 +66,15 @@ final class CaptionViewModel: ObservableObject {
     // MARK: - Setup
     
     private func setupSpeechRecognition() {
-        // Request authorization
-        SFSpeechRecognizer.requestAuthorization { [weak self] authStatus in
-            DispatchQueue.main.async {
-                switch authStatus {
-                case .authorized:
-                    self?.statusText = "Ready to record"
-                case .denied:
-                    self?.statusText = "Speech recognition permission denied"
-                case .restricted:
-                    self?.statusText = "Speech recognition restricted"
-                case .notDetermined:
-                    self?.statusText = "Speech recognition not determined"
-                @unknown default:
-                    self?.statusText = "Speech recognition authorization unknown"
-                }
-            }
-        }
+        // Set up delegate relationship
+        speechRecognitionManager.delegate = self
     }
     
     private func setupSystemAudioComponents() {
         // Initialize system audio components only if supported
         if #available(macOS 14.4, *) {
-            if systemAudioPermissionManager.isSystemAudioCaptureSupported() {
-                systemAudioManager = SystemAudioManager()
-                audioMixingService = AudioMixingService()
-            }
+            systemAudioManager = SystemAudioManager()
+            audioMixingService = AudioMixingService()
         }
     }
     
@@ -143,67 +121,13 @@ final class CaptionViewModel: ObservableObject {
     // MARK: - Speech Recognition Control (Always Running When Recording)
     
     private func startRecording() {
-        guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
-            statusText = "Speech recognizer not available"
-            return
-        }
-        
-        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            statusText = "Speech recognition not authorized"
-            return
-        }
-        
         logger.info("🔴 STARTING SPEECH RECOGNITION ENGINE")
         
-        // Cancel any existing task
-        recognitionTask?.cancel()
-        recognitionTask = nil
+        // Start speech recognition manager
+        speechRecognitionManager.startRecording()
         
-        // Create recognition request
-        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let recognitionRequest = recognitionRequest else {
-            statusText = "Failed to create recognition request"
-            return
-        }
-        
-        recognitionRequest.shouldReportPartialResults = true
-        
-        // Start recognition task
-        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                DispatchQueue.main.async {
-                    self.statusText = "Recognition error: \(error.localizedDescription)"
-                }
-                return
-            }
-            
-            if let result = result {
-                let transcription = result.bestTranscription.formattedString
-                
-                DispatchQueue.main.async {
-                    // Store the full transcription from SFSpeechRecognizer
-                    let previousFullLength = self.fullTranscriptionText.count
-                    self.fullTranscriptionText = transcription
-                    
-                    // Extract only the NEW part that hasn't been processed yet
-                    let newPart = self.extractNewTranscriptionPart(from: transcription)
-                    self.currentTranscription = newPart
-                    
-                    // If new text was added, reset silence timer if we're currently in silence
-                    if transcription.count > previousFullLength {
-                        if !self.currentSpeechState {
-                            self.silenceStartTime = Date()
-                        }
-                    }
-                }
-            }
-        }
-        
-        isRecording = true
+        isRecording = speechRecognitionManager.isRecording
         updateStatus()
-        currentTranscription = ""
         frameCounter = 0
         
         // Start system audio processing if enabled
@@ -233,28 +157,15 @@ final class CaptionViewModel: ObservableObject {
         // Stop mixed audio stream
         stopMixedAudioStream()
         
-        // Cancel recognition task
-        recognitionTask?.cancel()
-        recognitionTask = nil
+        // Stop speech recognition manager
+        speechRecognitionManager.stopRecording()
         
-        // End recognition request
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
-        
-        isRecording = false
+        isRecording = speechRecognitionManager.isRecording
         updateStatus()
         
-        // Add final transcription to history if not empty
-        if !currentTranscription.isEmpty {
-            addToHistory(currentTranscription)
-            currentTranscription = ""
-        }
-        
-        // Reset VAD state and text tracking
+        // Reset VAD state
         vadProcessor.reset()
         currentSpeechState = false
-        processedTextLength = 0
-        fullTranscriptionText = ""
         
         logger.info("✅ SPEECH RECOGNITION ENGINE STOPPED")
     }
@@ -262,56 +173,43 @@ final class CaptionViewModel: ObservableObject {
     // MARK: - Microphone Control
     
     private func startMicrophone() {
-        logger.info("🎤 STARTING MICROPHONE SOURCE")
+        logger.info("🎤 STARTING MICROPHONE SOURCE via MicAudioManager")
         
-        // Setup audio engine
-        audioEngine = AVAudioEngine()
-        guard let audioEngine = audioEngine else {
-            statusText = "Failed to create audio engine"
-            logger.error("❌ Failed to create audio engine")
-            return
-        }
-        
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        
-        logger.info("🎤 Microphone format: \(recordingFormat.sampleRate)Hz, \(recordingFormat.channelCount)ch")
-        
-        // Install tap on input node
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-            self?.processMicrophoneBuffer(buffer)
-        }
-        
-        // Prepare and start audio engine
-        do {
-            audioEngine.prepare()
-            try audioEngine.start()
+        Task {
+            await micAudioManager.start()
             
-            isMicrophoneEnabled = true
-            updateStatus()
-            
-            // Restart mixed stream if recording
-            if isRecording {
-                startMixedAudioStream()
+            await MainActor.run {
+                if micAudioManager.isRecording {
+                    self.isMicrophoneEnabled = true
+                    self.updateStatus()
+                    
+                    // Start processing microphone stream
+                    self.startMicrophoneStreamProcessing()
+                    
+                    // Restart mixed stream if recording
+                    if self.isRecording {
+                        self.startMixedAudioStream()
+                    }
+                    
+                    self.logger.info("✅ MICROPHONE SOURCE STARTED via MicAudioManager")
+                } else {
+                    self.statusText = "Failed to start microphone"
+                    self.logger.error("❌ MicAudioManager failed to start recording")
+                }
             }
-            
-            logger.info("✅ MICROPHONE SOURCE STARTED")
-            
-        } catch {
-            statusText = "Failed to start microphone: \(error.localizedDescription)"
-            logger.error("❌ Microphone start error: \(error)")
         }
     }
     
     private func stopMicrophone() {
-        logger.info("🎤 STOPPING MICROPHONE SOURCE")
+        logger.info("🎤 STOPPING MICROPHONE SOURCE via MicAudioManager")
         
         guard isMicrophoneEnabled else { return }
         
-        // Stop audio engine
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine = nil
+        // Stop microphone stream processing
+        stopMicrophoneStreamProcessing()
+        
+        // Stop MicAudioManager
+        micAudioManager.stop()
         
         isMicrophoneEnabled = false
         updateStatus()
@@ -321,7 +219,86 @@ final class CaptionViewModel: ObservableObject {
             startMixedAudioStream()
         }
         
-        logger.info("✅ MICROPHONE SOURCE STOPPED")
+        logger.info("✅ MICROPHONE SOURCE STOPPED via MicAudioManager")
+    }
+    
+    // MARK: - Microphone Stream Processing
+    
+    private func startMicrophoneStreamProcessing() {
+        logger.info("🎤 STARTING MICROPHONE STREAM PROCESSING")
+        
+        microphoneStreamTask = Task { [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                let micStream = self.micAudioManager.audioFrames()
+                
+                for try await audioSamples in micStream {
+                    guard !Task.isCancelled, self.isRecording, self.isMicrophoneEnabled else { 
+                        self.logger.info("🎤 Breaking microphone processing: cancelled=\(Task.isCancelled), recording=\(self.isRecording), enabled=\(self.isMicrophoneEnabled)")
+                        break 
+                    }
+                    
+                    self.logger.info("🎤 RECEIVED \(audioSamples.count) samples from MicAudioManager")
+                    
+                    // Convert microphone samples to AVAudioPCMBuffer
+                    if let buffer = self.createAudioBuffer(from: audioSamples) {
+                        // Send directly to speech recognition on main thread
+                        DispatchQueue.main.async { [weak self] in
+                            self?.speechRecognitionManager.appendAudioBuffer(buffer)
+                            self?.logger.info("🎤 Microphone buffer sent to speech recognition: \(buffer.frameLength) frames")
+                        }
+                        
+                        // Process for VAD and debugging
+                        self.processMicrophoneBufferForVAD(buffer, samples: audioSamples)
+                    }
+                }
+                
+                self.logger.info("🎤 MICROPHONE STREAM PROCESSING ENDED")
+            } catch {
+                self.logger.error("🎤 Microphone stream processing error: \(error)")
+            }
+        }
+    }
+    
+    private func stopMicrophoneStreamProcessing() {
+        logger.info("🎤 STOPPING MICROPHONE STREAM PROCESSING")
+        microphoneStreamTask?.cancel()
+        microphoneStreamTask = nil
+    }
+    
+    private func processMicrophoneBufferForVAD(_ buffer: AVAudioPCMBuffer, samples: [Float]) {
+        let isSpeech = vadProcessor.processAudioChunk(samples)
+        
+        self.frameCounter += 1
+        
+        // Enhanced debug logging for microphone
+        AudioDebugLogger.shared.logAudioFrame(
+            source: .microphone,
+            frameIndex: self.frameCounter,
+            samples: samples,
+            sampleRate: buffer.format.sampleRate,
+            vadDecision: isSpeech
+        )
+        
+        // Detect speech state transitions for microphone
+        if isSpeech != currentSpeechState {
+            AudioDebugLogger.shared.logVADTransition(from: currentSpeechState, to: isSpeech)
+            
+            if isSpeech {
+                logger.info("🗣️ MICROPHONE SPEECH START detected")
+                speechRecognitionManager.onSpeechStart()
+            } else {
+                logger.info("🤫 MICROPHONE SPEECH END detected")
+                speechRecognitionManager.onSpeechEnd()
+            }
+            currentSpeechState = isSpeech
+        }
+        
+        // Check for sentence timeout during silence
+        if !isSpeech {
+            speechRecognitionManager.checkSentenceTimeout()
+        }
     }
     
     // MARK: - System Audio Control
@@ -348,18 +325,7 @@ final class CaptionViewModel: ObservableObject {
         
         Task {
             do {
-                // Check/request permission first
-                let hasPermission = await systemAudioPermissionManager.requestPermission()
-                guard hasPermission else {
-                    await MainActor.run {
-                        self.statusText = "System audio permission denied"
-                        self.logger.warning("💻 System audio permission denied")
-                    }
-                    AudioDebugLogger.shared.logSystemAudioStatus(isEnabled: false, error: "Permission denied")
-                    return
-                }
-                
-                // Start system audio capture
+                // Start system audio capture (permission handling is now integrated)
                 try await systemAudioManager.startCapture()
                 
                 await MainActor.run {
@@ -466,7 +432,7 @@ final class CaptionViewModel: ObservableObject {
             
             // Convert to AVAudioPCMBuffer and send to recognizer
             if let buffer = self.createAudioBuffer(from: audioSamples) {
-                self.recognitionRequest?.append(buffer)
+                self.speechRecognitionManager.appendAudioBuffer(buffer)
                 self.processAudioBufferForVAD(buffer, samples: audioSamples)
             }
         }
@@ -503,7 +469,7 @@ final class CaptionViewModel: ObservableObject {
                     if let buffer = self.createAudioBuffer(from: audioSamples) {
                         // Send directly to speech recognition on main thread
                         DispatchQueue.main.async { [weak self] in
-                            self?.recognitionRequest?.append(buffer)
+                            self?.speechRecognitionManager.appendAudioBuffer(buffer)
                             self?.logger.info("💻 System audio buffer sent to speech recognition: \(buffer.frameLength) frames, \(buffer.format.channelCount) channels, \(buffer.format.sampleRate) Hz")
                         }
                         
@@ -545,52 +511,21 @@ final class CaptionViewModel: ObservableObject {
             
             if isSpeech {
                 logger.info("🗣️ SYSTEM AUDIO SPEECH START detected")
-                onSpeechStart()
+                speechRecognitionManager.onSpeechStart()
             } else {
                 logger.info("🤫 SYSTEM AUDIO SPEECH END detected")
-                onSpeechEnd()
+                speechRecognitionManager.onSpeechEnd()
             }
             currentSpeechState = isSpeech
         }
         
         // Check for sentence timeout during silence
-        if !isSpeech && !currentTranscription.isEmpty {
-            let silenceDuration = Date().timeIntervalSince(silenceStartTime)
-            if silenceDuration >= sentenceTimeoutDuration {
-                logger.info("⏰ SYSTEM AUDIO SENTENCE TIMEOUT after \(String(format: "%.1f", silenceDuration))s silence")
-                finalizeSentence()
-            }
+        if !isSpeech {
+            speechRecognitionManager.checkSentenceTimeout()
         }
     }
     
     // MARK: - Audio Buffer Processing with Detailed Logging
-    
-    private func processMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData else { return }
-        
-        let frameCount = Int(buffer.frameLength)
-        let samples = Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
-        let sampleRate = buffer.format.sampleRate
-        
-        self.frameCounter += 1
-        
-        // Enhanced debug logging with colors
-        AudioDebugLogger.shared.logAudioFrame(
-            source: .microphone,
-            frameIndex: self.frameCounter,
-            samples: samples,
-            sampleRate: sampleRate,
-            vadDecision: nil
-        )
-        
-        // Send microphone audio directly to speech recognizer when enabled
-        if isMicrophoneEnabled && isRecording {
-            DispatchQueue.main.async { [weak self] in
-                self?.recognitionRequest?.append(buffer)
-            }
-            processAudioBufferForVAD(buffer, samples: samples)
-        }
-    }
     
     private func processAudioBufferForVAD(_ buffer: AVAudioPCMBuffer, samples: [Float]) {
         let isSpeech = vadProcessor.processAudioChunk(samples)
@@ -612,21 +547,17 @@ final class CaptionViewModel: ObservableObject {
             
             if isSpeech {
                 logger.info("🗣️ SPEECH START detected")
-                onSpeechStart()
+                speechRecognitionManager.onSpeechStart()
             } else {
                 logger.info("🤫 SPEECH END detected")
-                onSpeechEnd()
+                speechRecognitionManager.onSpeechEnd()
             }
             currentSpeechState = isSpeech
         }
         
         // Check for sentence timeout during silence
-        if !isSpeech && !currentTranscription.isEmpty {
-            let silenceDuration = Date().timeIntervalSince(silenceStartTime)
-            if silenceDuration >= sentenceTimeoutDuration {
-                logger.info("⏰ SENTENCE TIMEOUT after \(String(format: "%.1f", silenceDuration))s silence")
-                finalizeSentence()
-            }
+        if !isSpeech {
+            speechRecognitionManager.checkSentenceTimeout()
         }
     }
     
@@ -649,10 +580,10 @@ final class CaptionViewModel: ObservableObject {
     }
     
     private func getMicrophoneAudioStream() -> AsyncStream<[Float]> {
-        return AsyncStream { continuation in
-            // This stream will be fed from the processMicrophoneBuffer function
-            // For now, we'll use the existing buffer processing
-            continuation.finish()
+        if isMicrophoneEnabled {
+            return micAudioManager.audioFrames()
+        } else {
+            return createEmptyAudioStream()
         }
     }
     
@@ -700,68 +631,32 @@ final class CaptionViewModel: ObservableObject {
         return buffer
     }
 
-    // MARK: - Legacy Functions (Keep for compatibility)
-    
-    func addToHistory(_ text: String) {
-        let entry = CaptionEntry(
-            id: UUID(),
-            text: text,
-            confidence: 1.0 // SFSpeechRecognizer doesn't provide confidence scores
-        )
-        captionHistory.append(entry)
-        
-        // Keep only last 50 entries to prevent memory issues
-        if captionHistory.count > 50 {
-            captionHistory.removeFirst()
-        }
-        
-        logger.info("📝 Added to history: \(text)")
-    }
+    // MARK: - Public Interface
     
     func clearCaptions() {
-        captionHistory.removeAll()
-        currentTranscription = ""
+        speechRecognitionManager.clearCaptions()
         logger.info("🗑️ CLEARED ALL CAPTIONS")
     }
     
-    private func onSpeechStart() {
-        // Speech started, no immediate action needed
+    // MARK: - SpeechRecognitionManagerDelegate
+    
+    func speechRecognitionDidUpdateTranscription(_ manager: SpeechRecognitionManager, newText: String) {
+        // Trigger UI updates by accessing the computed properties
+        objectWillChange.send()
     }
     
-    private func onSpeechEnd() {
-        silenceStartTime = Date()
+    func speechRecognitionDidFinalizeSentence(_ manager: SpeechRecognitionManager, sentence: String) {
+        logger.info("📝 FINALIZED SENTENCE: \(sentence)")
+        objectWillChange.send()
     }
     
-    private func finalizeSentence() {
-        DispatchQueue.main.async {
-            if !self.currentTranscription.isEmpty {
-                self.logger.info("📝 FINALIZING SENTENCE: \(self.currentTranscription)")
-                
-                // Add the current sentence part to history
-                self.addToHistory(self.currentTranscription)
-                
-                // Update processed length to include what we just added
-                self.processedTextLength = self.fullTranscriptionText.count
-                
-                // Clear current transcription for next sentence
-                self.currentTranscription = ""
-                
-                // Reset silence timer
-                self.silenceStartTime = Date()
-            }
-        }
+    func speechRecognitionDidEncounterError(_ manager: SpeechRecognitionManager, error: Error) {
+        logger.error("❌ SPEECH RECOGNITION ERROR: \(error.localizedDescription)")
+        statusText = "Recognition error: \(error.localizedDescription)"
     }
     
-    // MARK: - Text Processing Helpers
-    
-    private func extractNewTranscriptionPart(from fullText: String) -> String {
-        // Extract only the part that hasn't been processed yet
-        if fullText.count > processedTextLength {
-            let startIndex = fullText.index(fullText.startIndex, offsetBy: processedTextLength)
-            let newPart = String(fullText[startIndex...])
-            return newPart.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return ""
+    func speechRecognitionStatusDidChange(_ manager: SpeechRecognitionManager, status: String) {
+        statusText = status
     }
     
 }

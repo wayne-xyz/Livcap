@@ -21,6 +21,7 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
     @Published private(set) var isCapturing = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var systemAudioLevel: Float = 0.0
+    @Published private(set) var permissionStatus: PermissionStatus = .unknown
     
     // MARK: - Private Properties
     
@@ -65,6 +66,9 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
         
         self.targetFormat = format
         
+        // Check initial permission status
+        checkCurrentPermissionStatus()
+        
         // Log all audio-capable processes at startup
         logAllAudioCapableProcesses()
         
@@ -77,11 +81,20 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
     
     // MARK: - Public Interface
     
-    /// Start system audio capture
+    /// Start system audio capture with automatic permission handling
     func startCapture() async throws {
         guard !isCapturing else {
             logger.warning("System audio capture already running")
             return
+        }
+        
+        // Check and request permissions first
+        let hasPermission = await requestPermission()
+        guard hasPermission else {
+            let error = NSError(domain: "SystemAudioManager", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "System audio capture permission denied"
+            ])
+            throw error
         }
         
         logger.info("Starting system audio capture...")
@@ -138,6 +151,112 @@ class SystemAudioManager: ObservableObject, SystemAudioProtocol {
         
         self.audioStream = stream
         return stream
+    }
+    
+    // MARK: - Permission Management
+    
+    /// Check current permission status
+    func checkPermissionStatus() -> PermissionStatus {
+        checkCurrentPermissionStatus()
+        return permissionStatus
+    }
+    
+    /// Request system audio capture permission
+    func requestPermission() async -> Bool {
+        logger.info("Requesting system audio permission")
+        
+        return await requestPermissionViaRuntime()
+    }
+    
+    /// Open System Settings to audio capture privacy panel
+    func openSystemSettings() {
+        logger.info("Opening System Settings for privacy permissions")
+        
+        // Try to open specific audio capture privacy settings
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture") {
+            NSWorkspace.shared.open(url)
+        } else {
+            // Fallback to general privacy settings
+            if let generalURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
+                NSWorkspace.shared.open(generalURL)
+            } else {
+                logger.error("Failed to open System Settings")
+                updateErrorMessage("Unable to open System Settings")
+            }
+        }
+    }
+    
+    /// Check if system audio capture is supported on this macOS version
+    func isSystemAudioCaptureSupported() -> Bool {
+        return true // Since we're already in @available(macOS 14.4, *) class
+    }
+    
+    /// Get user-friendly permission status description
+    func getPermissionStatusDescription() -> String {
+        switch permissionStatus {
+        case .unknown:
+            return "Permission status unknown. System audio capture may require user authorization."
+        case .authorized:
+            return "System audio capture is authorized and ready to use."
+        case .denied:
+            return "System audio capture permission has been denied. Please enable it in System Settings."
+        case .unsupported:
+            return "System audio capture requires macOS 14.4 or later."
+        }
+    }
+    
+    /// Check if permission UI should be shown
+    func shouldShowPermissionUI() -> Bool {
+        return permissionStatus == .denied || permissionStatus == .unsupported
+    }
+    
+    // MARK: - Private Permission Methods
+    
+    private func checkCurrentPermissionStatus() {
+        // We can't easily check permission status without trying to capture
+        // Set to unknown initially, will be updated when attempting capture
+        updatePermissionStatus(.unknown)
+    }
+    
+    private func requestPermissionViaRuntime() async -> Bool {
+        logger.info("Attempting runtime permission check via system audio capture")
+        
+        do {
+            // Try to setup audio tap to trigger permission prompt
+            try await setupSystemAudioTap()
+            
+            // If we get here, permission was granted
+            cleanupAudioTap() // Clean up the test tap
+            updatePermissionStatus(.authorized)
+            return true
+            
+        } catch {
+            logger.error("Runtime permission check failed: \(error.localizedDescription)")
+            
+            // Check if this is a permission error
+            if error.localizedDescription.contains("permission") || 
+               error.localizedDescription.contains("authorization") ||
+               error.localizedDescription.contains("denied") {
+                updatePermissionStatus(.denied)
+            } else {
+                updatePermissionStatus(.unknown)
+                updateErrorMessage(error.localizedDescription)
+            }
+            
+            return false
+        }
+    }
+    
+    private func updatePermissionStatus(_ status: PermissionStatus) {
+        Task { @MainActor in
+            self.permissionStatus = status
+        }
+    }
+    
+    private func updateErrorMessage(_ message: String) {
+        Task { @MainActor in
+            self.errorMessage = message
+        }
     }
     
     // MARK: - Process Discovery and Logging
@@ -1134,4 +1253,39 @@ extension AudioObjectID {
 
 extension String: @retroactive LocalizedError {
     public var errorDescription: String? { self }
+}
+
+// MARK: - Permission Status Enum
+
+enum PermissionStatus: String, CaseIterable {
+    case unknown = "unknown"
+    case authorized = "authorized" 
+    case denied = "denied"
+    case unsupported = "unsupported"
+    
+    var displayName: String {
+        switch self {
+        case .unknown:
+            return "Unknown"
+        case .authorized:
+            return "Authorized"
+        case .denied:
+            return "Denied"
+        case .unsupported:
+            return "Unsupported"
+        }
+    }
+    
+    var systemImageName: String {
+        switch self {
+        case .unknown:
+            return "questionmark.circle"
+        case .authorized:
+            return "checkmark.circle.fill"
+        case .denied:
+            return "xmark.circle.fill"
+        case .unsupported:
+            return "exclamationmark.triangle.fill"
+        }
+    }
 } 
