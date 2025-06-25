@@ -57,6 +57,16 @@ final class CaptionViewModel: ObservableObject {
             .assign(to: \.isSystemAudioEnabled, on: self)
             .store(in: &cancellables)
             
+        // REACTIVE STATE MANAGEMENT: Auto-manage recording state when audio sources change
+        audioCoordinator.$isMicrophoneEnabled
+            .combineLatest(audioCoordinator.$isSystemAudioEnabled)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] (micEnabled, systemEnabled) in
+                self?.manageRecordingState(micEnabled: micEnabled, systemEnabled: systemEnabled)
+                self?.updateStatus(micEnabled: micEnabled, systemEnabled: systemEnabled)
+            }
+            .store(in: &cancellables)
+            
         // Subscribe to changes from SpeechProcessor
         speechProcessor.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -70,18 +80,20 @@ final class CaptionViewModel: ObservableObject {
     
     func toggleMicrophone() {
         audioCoordinator.toggleMicrophone()
-        manageRecordingState()
+        // Removed: manageRecordingState() - now handled reactively!
     }
     
     func toggleSystemAudio() {
         audioCoordinator.toggleSystemAudio()
-        manageRecordingState()
+        // Removed: manageRecordingState() - now handled reactively!
     }
     
     // MARK: - Auto Speech Recognition Management
     
-    private func manageRecordingState() {
-        let shouldBeRecording = !audioCoordinator.isMicrophoneEnabled && !audioCoordinator.isSystemAudioEnabled
+    private func manageRecordingState(micEnabled: Bool, systemEnabled: Bool) {
+        let shouldBeRecording = micEnabled || systemEnabled
+        
+        logger.info("🔄 REACTIVE STATE CHECK: mic=\(micEnabled), sys=\(systemEnabled), shouldRecord=\(shouldBeRecording), isRecording=\(self.isRecording)")
         
         if shouldBeRecording && !isRecording {
             startRecording()
@@ -108,7 +120,6 @@ final class CaptionViewModel: ObservableObject {
                 speechProcessor.processAudioFrame(frame)
             }
         }
-        updateStatus()
     }
     
     private func stopRecording() {
@@ -122,14 +133,13 @@ final class CaptionViewModel: ObservableObject {
         
         // Stop the speech processor
         speechProcessor.stopProcessing()
-        updateStatus()
     }
     
     // MARK: - Helper Functions
     
-    private func updateStatus() {
-        let micStatus = isMicrophoneEnabled ? "MIC:ON" : "MIC:OFF"
-        let systemStatus = isSystemAudioEnabled ? "SYS:ON" : "SYS:OFF"
+    private func updateStatus(micEnabled: Bool, systemEnabled: Bool) {
+        let micStatus = micEnabled ? "MIC:ON" : "MIC:OFF"
+        let systemStatus = systemEnabled ? "SYS:ON" : "SYS:OFF"
         
         if !isRecording {
             self.statusText = "Ready"
