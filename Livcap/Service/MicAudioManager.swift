@@ -33,8 +33,6 @@ final class MicAudioManager: ObservableObject {
     private var inputNode: AVAudioInputNode? {
         audioEngine?.inputNode
     }
-    private var audioStreamContinuation: AsyncStream<[Float]>.Continuation?
-    private var audioStream: AsyncStream<[Float]>?
     
     // VAD Processing
     private let vadProcessor = VADProcessor()
@@ -71,28 +69,13 @@ final class MicAudioManager: ObservableObject {
     }
     
     
-    // consumer accessibility point.
-    func audioFrames()->AsyncStream<[Float]>{
-        if let stream=audioStream{
-            return stream
-        }
-        
-        self.audioStream = AsyncStream { continuation in
-            self.audioStreamContinuation = continuation
-            continuation.onTermination = { @Sendable [weak self] _ in
-                self?.stopRecording()
-            }
-        }
-        
-        return self.audioStream!
-    }
-    
     // Enhanced consumer accessibility point with VAD metadata
     func audioFramesWithVAD() -> AsyncStream<AudioFrameWithVAD> {
         if let stream = vadAudioStream {
+            print("********************there is a vadAudioStream")
             return stream
         }
-        
+        print("@@@@@@@@@@@@@@@@@@@@there is no a vadAudioStream")
         self.vadAudioStream = AsyncStream { continuation in
             self.vadAudioStreamContinuation = continuation
             continuation.onTermination = { @Sendable [weak self] _ in
@@ -116,7 +99,6 @@ final class MicAudioManager: ObservableObject {
         
         guard let inputNode = inputNode else {
             print("Failed to get audio input node.")
-            audioStreamContinuation?.finish()
             vadAudioStreamContinuation?.finish()
             return
         }
@@ -129,7 +111,7 @@ final class MicAudioManager: ObservableObject {
             interleaved: false
         ) else {
             print("Failed to create processing format.")
-            audioStreamContinuation?.finish()
+            vadAudioStreamContinuation?.finish()
             return
         }
 
@@ -146,12 +128,6 @@ final class MicAudioManager: ObservableObject {
                 // Process with new buffer-based VAD (no float conversion needed!)
                 self.processAudioBufferWithVAD(pcmBuffer)
                 
-                // Legacy compatibility: Extract float samples only if needed
-                if let continuation = self.audioStreamContinuation {
-                    guard let floatChannelData = pcmBuffer.floatChannelData else { return }
-                    let samples = Array(UnsafeBufferPointer(start: floatChannelData[0], count: Int(pcmBuffer.frameLength)))
-                    continuation.yield(samples)
-                }
             }
         }
 
@@ -163,7 +139,7 @@ final class MicAudioManager: ObservableObject {
             }
         } catch {
             print("Failed to start audio engine: \(error.localizedDescription)")
-            audioStreamContinuation?.finish()
+            vadAudioStreamContinuation?.finish()
         }
     }
 
@@ -176,8 +152,8 @@ final class MicAudioManager: ObservableObject {
         Task{ @MainActor in
             self.isRecording = false
         }
-        audioStreamContinuation?.finish()
         vadAudioStreamContinuation?.finish()
+        vadAudioStream=nil
         
         // Reset VAD state
         vadProcessor.reset()

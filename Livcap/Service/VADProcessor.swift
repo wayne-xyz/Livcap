@@ -63,34 +63,7 @@ final class VADProcessor {
         )
     }
 
-    // MARK: - Legacy Float Array Method (for compatibility)
-    
-    func processAudioChunk(_ samples: [Float]) -> Bool {
-        var rms: Float = 0.0
-        vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
 
-        let currentChunkIsAboveThreshold = rms > energyThreshold // Instantaneous decision
-        //print("RMS: \(rms), Above Threshold: \(currentChunkIsAboveThreshold)")
-
-        if currentChunkIsAboveThreshold {
-            consecutiveSpeechFrames += 1
-            consecutiveSilenceFrames = 0
-        } else {
-            consecutiveSilenceFrames += 1
-            consecutiveSpeechFrames = 0
-        }
-
-        var newIsSpeechDecision = lastIsSpeechDecision // Default to current state
-
-        if consecutiveSpeechFrames >= speechCountThreshold {
-            newIsSpeechDecision = true
-        } else if consecutiveSilenceFrames >= silenceCountThreshold {
-            newIsSpeechDecision = false
-        }
-        
-        lastIsSpeechDecision = newIsSpeechDecision
-        return newIsSpeechDecision
-    }
 
     func reset() { // Resets internal state
         consecutiveSpeechFrames = 0
