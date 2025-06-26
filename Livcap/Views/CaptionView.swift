@@ -120,12 +120,7 @@ struct CaptionView: View {
 
             
             // Right side buttons: system audio, mic and pin (removed recording button)
-            HStack(spacing: 8) {
-                systemAudioToggleButton()
-                micToggleButton()
-                pinButton()
-            }
-            .frame(width: 120) // Reduced width since we removed one button
+            controlButtons()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
@@ -142,11 +137,7 @@ struct CaptionView: View {
                 Spacer()
                 
                 // Right side buttons: system audio, mic and pin (removed recording button)
-                HStack(spacing: 8) {
-                    systemAudioToggleButton()
-                    micToggleButton()
-                    pinButton()
-                }
+                controlButtons()
             }
             .padding(.horizontal, 20)
             .padding(.top, 0)
@@ -211,69 +202,35 @@ struct CaptionView: View {
         }
     }
     
-
-    
     @ViewBuilder
-    private func pinButton() -> some View {
-        Button(action: {
-            togglePin()
-        }) {
-            Image(systemName: isPinned ? "pin.fill" : "pin")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isPinned ? .primary : .secondary)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.5)
-                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-                )
+    private func controlButtons() -> some View {
+        HStack(spacing: 8) {
+            CircularControlButton(
+                image: .system(captionViewModel.isMicrophoneEnabled ? "mic.fill" : "mic.slash.fill"),
+                helpText: "Toggle Microphone",
+                isActive: captionViewModel.isMicrophoneEnabled,
+                action: { captionViewModel.toggleMicrophone() }
+            )
+
+            CircularControlButton(
+                image: .custom(captionViewModel.isSystemAudioEnabled ? "laptop.wave" : "laptop.wave.slash"),
+                helpText: "Toggle System Audio",
+                isActive: captionViewModel.isSystemAudioEnabled,
+                action: { captionViewModel.toggleSystemAudio() }
+            )
+            
+            CircularControlButton(
+                image: .system(isPinned ? "pin.fill" : "pin"),
+                helpText: "Pin Window",
+                isActive: isPinned,
+                action: {
+                    isPinned.toggle()
+                    // Add window pinning logic here
+                }
+            )
         }
-        .buttonStyle(PlainButtonStyle())
-        .help(isPinned ? "Unpin from top" : "Pin to top")
         .opacity(isHovering ? 1.0 : 0.0)
         .animation(.easeInOut(duration: 0.2), value: isHovering)
-    }
-    
-    @ViewBuilder
-    private func systemAudioToggleButton() -> some View {
-        Button(action: {
-            captionViewModel.toggleSystemAudio()
-        }) {
-            Image(systemName: captionViewModel.isSystemAudioEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                .font(.system(size: 20))
-                .foregroundColor(captionViewModel.isSystemAudioEnabled ? .accentColor : .gray)
-        }
-        .buttonStyle(PlainButtonStyle())
-        .help("Toggle System Audio")
-    }
-    
-    @ViewBuilder
-    private func micToggleButton() -> some View {
-        Button(action: {
-            captionViewModel.toggleMicrophone()
-        }) {
-            Image(systemName: captionViewModel.isMicrophoneEnabled ? "mic.fill" : "mic.slash.fill")
-                .font(.system(size: 20))
-                .foregroundColor(captionViewModel.isMicrophoneEnabled ? .accentColor : .gray)
-        }
-        .buttonStyle(PlainButtonStyle())
-        .help("Toggle Microphone")
-    }
-    
-    
-    private func togglePin() {
-        isPinned.toggle()
-        
-        guard let window = NSApplication.shared.windows.first else { return }
-        
-        if isPinned {
-            // Set window to always on top
-            window.level = .floating
-        } else {
-            // Set window to normal level
-            window.level = .normal
-        }
     }
 }
 
