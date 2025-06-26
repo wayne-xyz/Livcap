@@ -213,7 +213,7 @@ struct CaptionView: View {
             )
 
             CircularControlButton(
-                image: .custom(captionViewModel.isSystemAudioEnabled ? "laptop.wave" : "laptop.wave.slash"),
+                image: .custom(captionViewModel.isSystemAudioEnabled ? "Laptop.wave" : "Laptop.wave.slash"),
                 helpText: "Toggle System Audio",
                 isActive: captionViewModel.isSystemAudioEnabled,
                 action: { captionViewModel.toggleSystemAudio() }
