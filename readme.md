@@ -1,6 +1,7 @@
 # Livcap
 
-Inspired by whisper-live using the overlap strategy. 
+A live captioning app for macOS. 
+Privacy first, light weight, freandly user experience for macOS users. 
 
 ## Highlights:
 - Privacy first, local model, no cloud, no analytics, no ads. No need internet connection. Free and open source. 
@@ -15,89 +16,55 @@ Inspired by whisper-live using the overlap strategy.
 ## Permission issue:
 `tccutil reset All com.xxx.xx`
 
+## Current Implementation:
+Based on SFSpeechRecognizer from the apple built-in framework. 
 
-## Current Implementation: Three Real-Time Transcription Approaches
+## 3 Approaches Considerations History
 
-This project implements and evaluates three different strategies for real-time speech transcription using Whisper models. Each approach has been implemented and tested with different trade-offs between latency, accuracy, and context management.
+### Approach 1: VAD-Based Silence Detection ✅ **Most Reliable**
 
-### Approach 1: VAD-Based Silence Detection (Currently Most Reliable)
-
-**Core Files:**
-- `Service/BufferManager.swift` - Main VAD-based segmentation logic
-- `Service/VADProcessor.swift` - Basic RMS-based voice activity detection
-- `Service/EnhancedVAD.swift` - Advanced VAD with hysteresis and confidence scoring
+**Files:** `BufferManager.swift`, `VADProcessor.swift`, `EnhancedVAD.swift`
 
 **How it works:**
-- Accumulates speech audio until silence is detected (3 consecutive silence frames)
-- Triggers inference when speech segment ends or reaches 15-second maximum
-- Uses RMS energy threshold (0.01) for voice/silence classification
-- Implements asymmetric hysteresis: immediate speech detection, delayed silence confirmation
+- Accumulates speech until 3 consecutive silence frames
+- Triggers inference on speech end or 15s maximum
+- RMS threshold (0.01) with asymmetric hysteresis
 
-**Key Characteristics:**
-- **Trigger**: Event-driven based on silence detection
-- **Buffer**: Variable size (speech segments only)
-- **Latency**: Variable (depends on speech patterns)
-- **Context**: Speech-only segments
+**Characteristics:** Event-driven, variable buffer, speech-only segments
 
-**Current Status:** ✅ **Most reliable approach** - Provides good quality transcriptions with reasonable latency for most use cases.
+**Status:** ✅ Best balance of quality and usability
 
-**Limitations:** 
-- Variable latency due to silence dependency
-- May cut off words at segment boundaries
-- Requires careful VAD tuning for different environments
+**Limitations:** Variable latency, potential word cutoff, VAD tuning needed
 
-### Approach 2: 5-Second Fixed Sliding Windows (Word-Level Chaos)
+### Approach 2: 5-Second Sliding Windows ❌ **Word-Level Chaos**
 
-**Core Files:**
-- `Service/ContinuousStreamManager.swift` - 5-second sliding window implementation
-- `Service/TranscriptionStabilizationManager.swift` - Overlap analysis and word-level matching
-- `ViewModels/Phase2ContinuousViewModel.swift` - Integration and VAD enhancement
+**Files:** `ContinuousStreamManager.swift`, `TranscriptionStabilizationManager.swift`
 
 **How it works:**
-- Maintains 5-second sliding window with 1-second stride
-- Creates 4-second overlap between consecutive windows
-- Uses LocalAgreement algorithm for word-level stabilization
-- Implements temporal overlap analysis for conflict resolution
+- 5s sliding window with 1s stride (4s overlap)
+- LocalAgreement algorithm for word-level stabilization
+- Temporal overlap analysis for conflicts
 
-**Key Characteristics:**
-- **Trigger**: Fixed 1-second intervals
-- **Buffer**: 5-second sliding window with 4-second overlap
-- **Stabilization**: Word-level matching across overlapping windows
+**Characteristics:** Fixed 1s intervals, 5s buffer, word-level matching
 
-**Current Status:** ❌ **Word-level chaos** - The overlap analysis creates confusion at word boundaries, leading to inconsistent transcriptions and poor user experience.
+**Status:** ❌ Overlap analysis creates transcription instability
 
-**Limitations:**
-- Complex word-level matching creates transcription instability
-- Overlap conflicts cause frequent text changes
-- Difficult to achieve smooth, readable output
+**Limitations:** Complex word matching, frequent text changes, poor readability
 
-### Approach 3: 30-Second WhisperLive-Inspired Buffer (High Latency)
+### Approach 3: 30-Second WhisperLive ❌ **High Latency**
 
-**Core Files:**
-- `Service/WhisperLiveContinuousManager.swift` - 30-second continuous buffer manager
-- `Service/WhisperLiveAudioBuffer.swift` - Incremental buffer growth and smart trimming
-- `Service/WhisperLiveFrameBuffer.swift` - Frame-based 30-second buffer with VAD marking
-- `Service/WhisperLiveTranscriptionManager.swift` - Complete pipeline integration
-- `Service/SpeechSegmentExtractor.swift` - Pre-inference VAD processing
+**Files:** `WhisperLiveContinuousManager.swift`, `WhisperLiveAudioBuffer.swift`
 
 **How it works:**
-- Maintains continuous 30-second audio buffer
-- Triggers inference every 1 second regardless of content
-- Grows buffer from 0 to 30 seconds, then smart trimming
-- Uses pre-inference VAD to extract speech-only segments
+- Continuous 30s audio buffer
+- 1s inference intervals with smart trimming
+- Pre-inference VAD for speech extraction
 
-**Key Characteristics:**
-- **Trigger**: Fixed 1-second intervals
-- **Buffer**: 30-second continuous context
-- **Strategy**: Maximum Whisper context with predictable timing
+**Characteristics:** Fixed 1s intervals, 30s context, maximum Whisper context
 
-**Current Status:** ❌ **High latency** - 30-second buffer requires >2 seconds for inference, making it unsuitable for real-time applications.
+**Status:** ❌ >2s latency unsuitable for real-time
 
-**Limitations:**
-- Excessive latency (>2s) for real-time use
-- High computational overhead
-- Memory intensive with large buffer
-- Not suitable for live captioning scenarios
+**Limitations:** Excessive latency, high overhead, memory intensive
 
 ## Current Conclusions
 

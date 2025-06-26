@@ -10,10 +10,6 @@ import Accelerate
 
 
 
-// Samples , Frames, chunks buffers,
-// V1. 1stage with 512ms 2 frame longs silence dtection then to inference , only
-// Sp,Sp,Sp,Si,Sp,Sp,   or Sp, Sp, Sp,Si,Si,Si... (end of the chunk 2 frame 512ms of silence , then conclude sentence or pharse )
-
 /// `AudioManager` handles microphone input and audio processing for real-time transcription **on macOS**.
 ///
 /// This class configures an audio engine to capture audio from the system's default input device,
@@ -22,10 +18,10 @@ import Accelerate
 ///
 ///
 ///
-final class AudioManager: ObservableObject {
+final class MicAudioManager: ObservableObject {
     // configuration constatn
     private let frameBufferSize: Int = 4800 // 100ms = 4800/48k float32 , a frame buffer is 4800sample.
-    private let downSampleRate: Double = 16000.0  // conver the 48k to 16k 
+    private let targetSampleRate: Double = 16000.0  // conver the 48k to 16k  , downsampling the input to the sfspeech
     
     
 
@@ -34,14 +30,21 @@ final class AudioManager: ObservableObject {
 
     // MARK: - Private Properties
     private var audioEngine: AVAudioEngine?
-    private let inputNode: AVAudioInputNode
-    private var audioStreamContinuation: AsyncStream<[Float]>.Continuation?
-    private var audioStream: AsyncStream<[Float]>?
+    private var inputNode: AVAudioInputNode? {
+        audioEngine?.inputNode
+    }
+    
+    // VAD Processing
+    private let vadProcessor = VADProcessor()
+    private var frameCounter: Int = 0
+    
+    // Enhanced audio stream with VAD
+    private var vadAudioStreamContinuation: AsyncStream<AudioFrameWithVAD>.Continuation?
+    private var vadAudioStream: AsyncStream<AudioFrameWithVAD>?
 
     // MARK: - Initialization
     init() {
         self.audioEngine = AVAudioEngine()
-        self.inputNode = audioEngine!.inputNode
     }
     
     deinit {
@@ -66,20 +69,21 @@ final class AudioManager: ObservableObject {
     }
     
     
-    // consumer accessibility point.
-    func audioFrames()->AsyncStream<[Float]>{
-        if let stream=audioStream{
+    // Enhanced consumer accessibility point with VAD metadata
+    func audioFramesWithVAD() -> AsyncStream<AudioFrameWithVAD> {
+        if let stream = vadAudioStream {
+            print("********************there is a vadAudioStream")
             return stream
         }
-        
-        self.audioStream = AsyncStream { continuation in
-            self.audioStreamContinuation = continuation
+        print("@@@@@@@@@@@@@@@@@@@@there is no a vadAudioStream")
+        self.vadAudioStream = AsyncStream { continuation in
+            self.vadAudioStreamContinuation = continuation
             continuation.onTermination = { @Sendable [weak self] _ in
                 self?.stopRecording()
             }
         }
         
-        return self.audioStream!
+        return self.vadAudioStream!
     }
     
 
@@ -93,15 +97,21 @@ final class AudioManager: ObservableObject {
         // On macOS, we don't need to configure an AVAudioSession.
         // The engine will use the system's default input device.
         
+        guard let inputNode = inputNode else {
+            print("Failed to get audio input node.")
+            vadAudioStreamContinuation?.finish()
+            return
+        }
+        
         let recordingFormat = inputNode.outputFormat(forBus: 0)
         guard let processingFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
-            sampleRate: downSampleRate,
+            sampleRate: targetSampleRate,
             channels: 1,
             interleaved: false
         ) else {
             print("Failed to create processing format.")
-            audioStreamContinuation?.finish()
+            vadAudioStreamContinuation?.finish()
             return
         }
 
@@ -112,16 +122,12 @@ final class AudioManager: ObservableObject {
         ) { [weak self] buffer, time in
             guard let self = self else { return }
             Task.detached {
-                // downsampling to the 16k mono, after convert the buffer framelength extend to the 1600 instead of the 4096/48000*16000=1366
+                // Convert to target format (16kHz mono)
                 let pcmBuffer = self.convertBuffer(buffer, to: processingFormat)
                 
-                // Extract float samples
-                guard let floatChannelData = pcmBuffer.floatChannelData else {
-                    return
-                }
+                // Process with new buffer-based VAD (no float conversion needed!)
+                self.processAudioBufferWithVAD(pcmBuffer)
                 
-                let samples = Array(UnsafeBufferPointer(start: floatChannelData[0], count: Int(pcmBuffer.frameLength)))
-                self.audioStreamContinuation?.yield(samples)
             }
         }
 
@@ -133,7 +139,7 @@ final class AudioManager: ObservableObject {
             }
         } catch {
             print("Failed to start audio engine: \(error.localizedDescription)")
-            audioStreamContinuation?.finish()
+            vadAudioStreamContinuation?.finish()
         }
     }
 
@@ -141,13 +147,40 @@ final class AudioManager: ObservableObject {
         guard isRecording, let engine = audioEngine, engine.isRunning else { return }
         
         engine.stop()
-        inputNode.removeTap(onBus: 0)
+        inputNode?.removeTap(onBus: 0)
         
         Task{ @MainActor in
             self.isRecording = false
         }
-        audioStreamContinuation?.finish()
+        vadAudioStreamContinuation?.finish()
+        vadAudioStream=nil
+        
+        // Reset VAD state
+        vadProcessor.reset()
+        frameCounter = 0
     }
+    
+    // MARK: - VAD Processing
+    
+    private func processAudioBufferWithVAD(_ buffer: AVAudioPCMBuffer) {
+        frameCounter += 1
+        
+        // Process VAD using new buffer-based method
+        let vadResult = vadProcessor.processAudioBuffer(buffer)
+        
+        // Create enhanced audio frame with buffer
+        let audioFrame = AudioFrameWithVAD(
+            buffer: buffer,
+            vadResult: vadResult,
+            source: .microphone,
+            frameIndex: frameCounter
+        )
+        // Yield enhanced frame
+        vadAudioStreamContinuation?.yield(audioFrame)
+        
+
+    }
+    
 
     
     

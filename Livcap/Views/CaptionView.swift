@@ -8,12 +8,16 @@ import SwiftUI
 
 struct CaptionView: View {
     
-    @StateObject private var caption = CaptionViewModel()
+    @StateObject private var captionViewModel: CaptionViewModel
     @State private var isPinned = false
     @State private var isHovering = false
     @State private var showWindowControls = false
     
     private let opacityLevel: Double = 0.7
+    
+    init() {
+        _captionViewModel = StateObject(wrappedValue: CaptionViewModel())
+    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -40,9 +44,12 @@ struct CaptionView: View {
             showWindowControls = hovering
         }
         .onDisappear {
-            // Stop recording when window closes
-            if caption.isRecording {
-                caption.toggleRecording()
+            // Stop audio sources when window closes
+            if captionViewModel.isMicrophoneEnabled {
+                captionViewModel.toggleMicrophone()
+            }
+            if captionViewModel.isSystemAudioEnabled {
+                captionViewModel.toggleSystemAudio()
             }
         }
     }
@@ -61,7 +68,7 @@ struct CaptionView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         // Caption history (older sentences at top)
-                        ForEach(caption.captionHistory) { entry in
+                        ForEach(captionViewModel.captionHistory) { entry in
                             Text(entry.text)
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundColor(.primary)
@@ -77,8 +84,8 @@ struct CaptionView: View {
                         }
                         
                         // Current transcription (real-time at bottom)
-                        if !caption.currentTranscription.isEmpty {
-                            Text(caption.currentTranscription+"...")
+                        if !captionViewModel.currentTranscription.isEmpty {
+                            Text(captionViewModel.currentTranscription+"...")
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundColor(.primary)
                                 .padding(.horizontal, 20)
@@ -91,17 +98,17 @@ struct CaptionView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
                 }
-                .onChange(of: caption.currentTranscription) {
-                    if !caption.currentTranscription.isEmpty {
+                .onChange(of: captionViewModel.currentTranscription) {
+                    if !captionViewModel.currentTranscription.isEmpty {
                         withAnimation(.easeOut(duration: 0.3)) {
                             proxy.scrollTo("currentTranscription", anchor: .bottom)
                         }
                     }
                 }
-                .onChange(of: caption.captionHistory.count) {
+                .onChange(of: captionViewModel.captionHistory.count) {
                     // Auto-scroll when new caption is added
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        if let lastEntry = caption.captionHistory.last {
+                        if let lastEntry = captionViewModel.captionHistory.last {
                             withAnimation(.easeOut(duration: 0.3)) {
                                 proxy.scrollTo(lastEntry.id, anchor: .bottom)
                             }
@@ -112,12 +119,8 @@ struct CaptionView: View {
             .padding(.horizontal, 20) // Equal margins on both sides
 
             
-            // Right side buttons: mic and pin
-            HStack(spacing: 8) {
-                micToggleButton()
-                pinButton()
-            }
-            .frame(width: 80) // Fixed width for right buttons
+            // Right side buttons: system audio, mic and pin (removed recording button)
+            controlButtons()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
@@ -133,11 +136,8 @@ struct CaptionView: View {
                 
                 Spacer()
                 
-                // Right side buttons: mic and pin
-                HStack(spacing: 8) {
-                    micToggleButton()
-                    pinButton()
-                }
+                // Right side buttons: system audio, mic and pin (removed recording button)
+                controlButtons()
             }
             .padding(.horizontal, 20)
             .padding(.top, 0)
@@ -148,7 +148,7 @@ struct CaptionView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         // Caption history (older sentences at top)
-                        ForEach(caption.captionHistory) { entry in
+                        ForEach(captionViewModel.captionHistory) { entry in
                             Text(entry.text)
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundColor(.primary)
@@ -164,8 +164,8 @@ struct CaptionView: View {
                         }
                         
                         // Current transcription (real-time at bottom)
-                        if !caption.currentTranscription.isEmpty {
-                            Text(caption.currentTranscription+"...")
+                        if !captionViewModel.currentTranscription.isEmpty {
+                            Text(captionViewModel.currentTranscription+"...")
                                 .font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundColor(.primary)
                                 .padding(.horizontal, 20)
@@ -178,17 +178,17 @@ struct CaptionView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
                 }
-                .onChange(of: caption.currentTranscription) {
-                    if !caption.currentTranscription.isEmpty {
+                .onChange(of: captionViewModel.currentTranscription) {
+                    if !captionViewModel.currentTranscription.isEmpty {
                         withAnimation(.easeOut(duration: 0.3)) {
                             proxy.scrollTo("currentTranscription", anchor: .bottom)
                         }
                     }
                 }
-                .onChange(of: caption.captionHistory.count) {
+                .onChange(of: captionViewModel.captionHistory.count) {
                     // Auto-scroll when new caption is added
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        if let lastEntry = caption.captionHistory.last {
+                        if let lastEntry = captionViewModel.captionHistory.last {
                             withAnimation(.easeOut(duration: 0.3)) {
                                 proxy.scrollTo(lastEntry.id, anchor: .bottom)
                             }
@@ -203,62 +203,34 @@ struct CaptionView: View {
     }
     
     @ViewBuilder
-    private func pinButton() -> some View {
-        Button(action: {
-            togglePin()
-        }) {
-            Image(systemName: isPinned ? "pin.fill" : "pin")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isPinned ? .primary : .secondary)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.5)
-                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-                )
+    private func controlButtons() -> some View {
+        HStack(spacing: 8) {
+            CircularControlButton(
+                image: .system(captionViewModel.isMicrophoneEnabled ? "mic.fill" : "mic.slash.fill"),
+                helpText: "Toggle Microphone",
+                isActive: captionViewModel.isMicrophoneEnabled,
+                action: { captionViewModel.toggleMicrophone() }
+            )
+
+            CircularControlButton(
+                image: .custom(captionViewModel.isSystemAudioEnabled ? "laptop.wave" : "laptop.wave.slash"),
+                helpText: "Toggle System Audio",
+                isActive: captionViewModel.isSystemAudioEnabled,
+                action: { captionViewModel.toggleSystemAudio() }
+            )
+            
+            CircularControlButton(
+                image: .system(isPinned ? "pin.fill" : "pin"),
+                helpText: "Pin Window",
+                isActive: isPinned,
+                action: {
+                    isPinned.toggle()
+                    // Add window pinning logic here
+                }
+            )
         }
-        .buttonStyle(PlainButtonStyle())
-        .help(isPinned ? "Unpin from top" : "Pin to top")
         .opacity(isHovering ? 1.0 : 0.0)
         .animation(.easeInOut(duration: 0.2), value: isHovering)
-    }
-    
-    @ViewBuilder
-    private func micToggleButton() -> some View {
-        Button(action: {
-            caption.toggleRecording()
-        }) {
-            Image(systemName: caption.isRecording ? "mic.fill" : "mic.slash")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(caption.isRecording ? .primary : .secondary)
-                .frame(width: 32, height: 32)
-                .background(
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.5)
-                        .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
-                )
-        }
-        .buttonStyle(PlainButtonStyle())
-        .help(caption.isRecording ? "Stop recording" : "Start recording")
-        .opacity(isHovering ? 1.0 : 0.0)
-        .animation(.easeInOut(duration: 0.2), value: isHovering)
-    }
-    
-    
-    private func togglePin() {
-        isPinned.toggle()
-        
-        guard let window = NSApplication.shared.windows.first else { return }
-        
-        if isPinned {
-            // Set window to always on top
-            window.level = .floating
-        } else {
-            // Set window to normal level
-            window.level = .normal
-        }
     }
 }
 

@@ -211,15 +211,3 @@ enum DisplayStatus {
     }
 }
 
-/// Simplified caption entry for clean display
-struct CaptionEntry: Identifiable {
-    let id: UUID
-    let text: String
-    let confidence: Float? // Optional confidence score
-    
-    init(id: UUID, text: String, confidence: Float? = nil) {
-        self.id = id
-        self.text = text
-        self.confidence = confidence
-    }
-} 
