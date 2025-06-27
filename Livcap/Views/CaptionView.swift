@@ -6,6 +6,7 @@
 //
 import SwiftUI
 
+
 struct CaptionView: View {
     
     @StateObject private var captionViewModel: CaptionViewModel
@@ -15,6 +16,8 @@ struct CaptionView: View {
     
     private let opacityLevel: Double = 0.7
     
+
+
     init() {
         _captionViewModel = StateObject(wrappedValue: CaptionViewModel())
     }
@@ -42,6 +45,14 @@ struct CaptionView: View {
         .onHover { hovering in
             isHovering = hovering
             showWindowControls = hovering
+        }
+        .onAppear {
+            // Test CoreAudioTapEngine when view appears
+            if #available(macOS 14.4, *) {
+  
+
+
+            }
         }
         .onDisappear {
             // Stop audio sources when window closes
@@ -243,3 +254,4 @@ struct CaptionView: View {
     CaptionView()
         .preferredColorScheme(.dark)
 }
+
