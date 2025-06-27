@@ -17,6 +17,7 @@ final class CoreAudioTapEngine {
     
     // install tap, config
     private var targetProcesses:[AudioObjectID] = []
+    private var targetFormat:AVAudioFormat?
     
     // status:
     private var isInstalled = false
@@ -30,17 +31,28 @@ final class CoreAudioTapEngine {
     private var aggregateDeviceID: AudioObjectID = .unknown
     private var processTapID: AudioObjectID = .unknown
     private var deviceProcID: AudioDeviceIOProcID?
-    private var targetFormat:AVAudioFormat?
     private var tapStreamDescription:AudioStreamBasicDescription?
 
     
     private let queue=DispatchQueue(label: "com.livcap.CoreAudioTapEngine")
     
-    
+
     
     func installTap(forProcesses processIDs:[AudioObjectID]) throws {
         self.targetProcesses = processIDs
         self.isInstalled = true
+        
+        // Configure target audio format for speech recognition (mono, 16kHz)
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16000.0,
+            channels: 1,
+            interleaved: false
+        ) else {
+            fatalError("Failed to create audio format")
+        }
+        
+        self.targetFormat = format
     }
     
     
@@ -149,7 +161,7 @@ final class CoreAudioTapEngine {
     }
     
     private func setupAudioProcessing() throws {
-        //1. Geting the inputformat from the setup
+        //1. Geting the inputformat from the setup which is match with tap's
         guard var streamDescription=tapStreamDescription else {
             throw CoreAudioTapEngineError.invalidTapStreamDescription
         }
@@ -159,7 +171,30 @@ final class CoreAudioTapEngine {
         }
         
         //2. create I/O proc for audio processing
+        let targetFormatCapture = self.targetFormat
+        var systemAudioFrameCounter=0
         
+        let ioBlock: AudioDeviceIOBlock = { [weak self, inputFormat, targetFormatCapture] _, inInputData, _ ,_ ,_ in
+            
+            systemAudioFrameCounter+=1
+            
+            // Create input buffer based on the inputformat
+            guard let inputBuffer=AVAudioPCMBuffer(
+                    pcmFormat: inputFormat,
+                    bufferListNoCopy: inInputData,
+                    deallocator: nil
+            )else{
+                print("Failed to create input buffer")
+                return
+            }
+            
+            // Convert to target format if needed
+            
+            
+            
+                
+            
+        }
         
         
         
