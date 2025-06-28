@@ -17,7 +17,7 @@ final class CoreAudioTapEngine {
     
     // install tap, config
     private var targetProcesses:[AudioObjectID] = []
-    private var targetFormat:AVAudioFormat?
+    private var targetFormat:AVAudioFormat
     
     // status:
     private var isInstalled = false
@@ -36,9 +36,7 @@ final class CoreAudioTapEngine {
     
     private let queue=DispatchQueue(label: "com.livcap.CoreAudioTapEngine")
     
-
-    
-    func installTap(forProcesses processIDs:[AudioObjectID]) throws {
+    init(forProcesses processIDs:[AudioObjectID]) {
         self.targetProcesses = processIDs
         self.isInstalled = true
         
@@ -54,6 +52,7 @@ final class CoreAudioTapEngine {
         
         self.targetFormat = format
     }
+    
     
     
     func start () async throws {
@@ -175,7 +174,7 @@ final class CoreAudioTapEngine {
         var systemAudioFrameCounter=0
         
         let ioBlock: AudioDeviceIOBlock = { [weak self, inputFormat, targetFormatCapture] _, inInputData, _ ,_ ,_ in
-            
+            guard let self = self else { return }
             systemAudioFrameCounter+=1
             
             // Create input buffer based on the inputformat
@@ -189,12 +188,17 @@ final class CoreAudioTapEngine {
             }
             
             // Convert to target format if needed
+            let processedBuffer=self.convertBufferFormat(inputBuffer, to: targetFormatCapture)
+            
+            // Extrac float samples and conver stereo to mono
+            let frameCount = Int(processedBuffer.frameLength)
+            let channelCount=Int((processedBuffer.format.channelCount))
             
             
             
-                
             
         }
+        
         
         
         
@@ -203,6 +207,98 @@ final class CoreAudioTapEngine {
     private func cleanupTap() {
         
     }
+    
+    
+    
+    
+    
+    /// Converts the given AVAudioPCMBuffer to match the target AVAudioFormat. without channel change.
+    /// - Parameters:
+    ///   - buffer: The input AVAudioPCMBuffer to convert.
+    ///   - format: The desired AVAudioFormat to convert the buffer to.
+    /// - Returns: A converted AVAudioPCMBuffer if conversion succeeds, otherwise the original buffer.
+    private func convertBufferFormat(_ buffer:AVAudioPCMBuffer , to format:AVAudioFormat) -> AVAudioPCMBuffer{
+        
+        // 1. if match exactly, return it
+        if buffer.format.sampleRate==format.sampleRate &&
+            buffer.format.channelCount==format.channelCount {
+            return buffer
+        }
+            
+        // 2. Create the target format for convertion
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt32, sampleRate: format.sampleRate, channels: buffer.format.channelCount, interleaved: false) else {
+            return buffer
+        }
+        
+        // 3. create the conveter
+        guard let converter = AVAudioConverter(from: buffer.format, to: targetFormat) else {
+            return buffer
+        }
+        
+        // 4. cacluate the requried capacity
+        let outputFrameCapacity=AVAudioFrameCount(
+            (Double(buffer.frameCapacity) * targetFormat.sampleRate) / Double(format.sampleRate)
+        )
+        
+        // 5. create the buffer
+        guard let outputBuffer=AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCapacity) else {
+            return buffer
+        }
+        
+        outputBuffer.frameLength=outputFrameCapacity
+        
+        // 6.perform the conversion
+        var error: NSError?
+        let status=converter.convert(to: outputBuffer, error: &error){
+            inNumPackets, outStatus in
+            outStatus.pointee = .haveData
+            return buffer
+        }
+        
+        
+        if status == .error || error != nil {
+            return buffer
+        }
+        
+        return outputBuffer
+    }
+    
+    
+    
+    /// Converts a stereo `AVAudioPCMBuffer` into a mono buffer by averaging the left and right channels.
+    /// - Parameters:
+    ///   - inputBuffer: The input buffer expected to contain stereo audio (2 channels).
+    ///   - targetFormat: The desired audio format (currently unused in the conversion).
+    /// - Returns: A mono `AVAudioPCMBuffer` with the same sample rate and frame length, or `nil` if conversion fails.
+    private func convertToMono(from inputBuffer: AVAudioPCMBuffer, targetFormat:AVAudioFormat) -> AVAudioPCMBuffer?{
+        let framelength=inputBuffer.frameLength
+        guard inputBuffer.format.channelCount==2 else {return inputBuffer}
+        
+        // create the mono format
+        guard let monoFormat=AVAudioFormat(commonFormat: inputBuffer.format.commonFormat, sampleRate: inputBuffer.format.sampleRate, channels: 1, interleaved: false)else {return nil}
+        
+        // create the mono buffer
+        guard let monoBuffer=AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: framelength) else {return nil}
+        
+        monoBuffer.frameLength=framelength
+        
+        // Access channe data
+        guard let stereoDataL=inputBuffer.floatChannelData?[0],
+              let stereoDataR=inputBuffer.floatChannelData?[1],
+                let monoData=monoBuffer.floatChannelData?[0] else {return nil}
+        
+        for i in 0..<framelength{
+            monoData[Int(i)]=(stereoDataL[Int(i)]+stereoDataR[Int(i)])/2.0
+        }
+        
+        return monoBuffer
+    }
+    
+    
+    
+    
+    
 
     
 }
