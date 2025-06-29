@@ -16,6 +16,8 @@ struct CaptionView: View {
     
     private let opacityLevel: Double = 0.7
     
+    private let engineExamples=CoreAudioTapEngineExamples()
+    
 
 
     init() {
@@ -49,7 +51,7 @@ struct CaptionView: View {
         .onAppear {
             // Test CoreAudioTapEngine when view appears
             if #available(macOS 14.4, *) {
-  
+                engineExamples.startBrowserAudioCapture()
 
 
             }
