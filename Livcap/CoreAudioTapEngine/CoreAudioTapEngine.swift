@@ -18,6 +18,7 @@ final class CoreAudioTapEngine {
     // install tap, config
     private var targetProcesses:[AudioObjectID] = []
     private var targetFormat:AVAudioFormat
+    private var targetBufferSize=1600 // for the audio 16k, match the micphone buffer size 
     
     // status:
     private var isInstalled = false
@@ -190,9 +191,7 @@ final class CoreAudioTapEngine {
             // Convert to target format if needed
             let processedBuffer=self.convertBufferFormat(inputBuffer, to: targetFormatCapture)
             
-            // Extrac float samples and conver stereo to mono
-            let frameCount = Int(processedBuffer.frameLength)
-            let channelCount=Int((processedBuffer.format.channelCount))
+            
             
             
             
