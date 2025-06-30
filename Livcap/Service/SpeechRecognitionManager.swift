@@ -41,9 +41,9 @@ final class SpeechRecognitionManager: ObservableObject {
     private var processedTextLength: Int = 0
     private var fullTranscriptionText: String = ""
     
-    // Sentence timing
-    private var silenceStartTime: Date = Date()
-    private let sentenceTimeoutDuration: TimeInterval = 2.0 // 2 seconds of silence to end sentence
+    // Frame-based silence detection
+    private var consecutiveSilenceFrames: Int = 0
+    private let silenceFrameThreshold: Int = 20  // ~2 seconds (20 frames × 100ms)
     private var currentSpeechState: Bool = false
     
     // AsyncStream for events
@@ -170,8 +170,8 @@ final class SpeechRecognitionManager: ObservableObject {
         // Reset state
         processedTextLength = 0
         fullTranscriptionText = ""
-        silenceStartTime = Date()
         currentSpeechState = false
+        consecutiveSilenceFrames = 0
         
         logger.info("✅ SPEECH RECOGNITION ENGINE STARTED")
     }
@@ -200,9 +200,10 @@ final class SpeechRecognitionManager: ObservableObject {
             }
         }
         
-        // Reset text tracking
+        // Reset state
         processedTextLength = 0
         fullTranscriptionText = ""
+        consecutiveSilenceFrames = 0
         
         logger.info("✅ SPEECH RECOGNITION ENGINE STOPPED")
     }
@@ -214,17 +215,25 @@ final class SpeechRecognitionManager: ObservableObject {
     
     func appendAudioBufferWithVAD(_ audioFrame: AudioFrameWithVAD) {
         guard isRecording, let recognitionRequest = recognitionRequest else { return }
-        
-        // Direct buffer append - no conversion needed! 🎉
-        print("buffer accepted: \(audioFrame.isSpeech), buffer type:\(String(describing: audioFrame.source))")
         recognitionRequest.append(audioFrame.buffer)
         
-        // Use VAD result for speech state management
+        // Frame-based silence detection
         if audioFrame.isSpeech {
+            consecutiveSilenceFrames = 0
             onSpeechStart()
         } else {
-            onSpeechEnd()
-            checkSentenceTimeout()
+            consecutiveSilenceFrames += 1
+            
+            if consecutiveSilenceFrames == 1 {
+                onSpeechEnd()
+            } else if consecutiveSilenceFrames == silenceFrameThreshold {
+                // 2 seconds of silence - create new line!
+                logger.info("⏰ 2s SILENCE DETECTED - Creating new caption line")
+                Task {
+                    await finalizeSentence()
+                }
+                consecutiveSilenceFrames = 0  // Reset counter
+            }
         }
     }
     
@@ -234,19 +243,6 @@ final class SpeechRecognitionManager: ObservableObject {
     
     func onSpeechEnd() {
         currentSpeechState = false
-        silenceStartTime = Date()
-    }
-    
-    func checkSentenceTimeout() {
-        if !currentSpeechState && !currentTranscription.isEmpty {
-            let silenceDuration = Date().timeIntervalSince(silenceStartTime)
-            if silenceDuration >= sentenceTimeoutDuration {
-                logger.info("⏰ SENTENCE TIMEOUT after \(String(format: "%.1f", silenceDuration))s silence")
-                Task {
-                    await finalizeSentence()
-                }
-            }
-        }
     }
     
     // MARK: - Private Methods
@@ -270,11 +266,9 @@ final class SpeechRecognitionManager: ObservableObject {
         // Notify via AsyncStream
         speechEventsContinuation?.yield(.transcriptionUpdate(newPart))
         
-        // If new text was added, reset silence timer if we're currently in silence
-        if transcription.count > previousFullLength {
-            if !currentSpeechState {
-                silenceStartTime = Date()
-            }
+        // Reset silence counter if new text was added during silence
+        if transcription.count > previousFullLength && !currentSpeechState {
+            consecutiveSilenceFrames = 0
         }
     }
     
@@ -296,7 +290,7 @@ final class SpeechRecognitionManager: ObservableObject {
             // Add the current sentence part to history
             addToHistory(currentTranscription)
             
-            // Notify via AsyncStream
+            // Notify via AsyncStream - this triggers UI to create new line!
             speechEventsContinuation?.yield(.sentenceFinalized(currentTranscription))
             
             // Update processed length to include what we just added
@@ -304,9 +298,6 @@ final class SpeechRecognitionManager: ObservableObject {
             
             // Clear current transcription for next sentence
             currentTranscription = ""
-            
-            // Reset silence timer
-            silenceStartTime = Date()
         }
     }
     
@@ -333,6 +324,7 @@ final class SpeechRecognitionManager: ObservableObject {
         Task { @MainActor in
             self.captionHistory.removeAll()
             self.currentTranscription = ""
+            self.consecutiveSilenceFrames = 0
             self.logger.info("🗑️ CLEARED ALL CAPTIONS")
         }
     }
