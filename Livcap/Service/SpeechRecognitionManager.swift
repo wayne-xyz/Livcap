@@ -43,7 +43,7 @@ final class SpeechRecognitionManager: ObservableObject {
     
     // Frame-based silence detection
     private var consecutiveSilenceFrames: Int = 0
-    private let silenceFrameThreshold: Int = 20  // ~2 seconds (20 frames × 100ms)
+    private let silenceFrameThreshold: Int = 10  // ~2 seconds (20 frames × 100ms)
     private var currentSpeechState: Bool = false
     
     // AsyncStream for events
