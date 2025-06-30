@@ -1,7 +1,8 @@
 # Livcap
 
 A live captioning app for macOS. 
-Privacy first, light weight, freandly user experience for macOS users. 
+Privacy first, light weight, freandly user experience for macOS users.
+What happens on your device, stays on your device. 
 
 ## Highlights:
 - Privacy first, local model, no cloud, no analytics, no ads. No need internet connection. Free and open source. 
