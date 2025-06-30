@@ -185,18 +185,6 @@ class CoreAudioTapEngineExamples: ObservableObject {
         }
     }
     
-    /// Calculate RMS (Root Mean Square) value from audio buffer
-    private func calculateRMS(from buffer: AVAudioPCMBuffer) -> Float {
-        guard let channelData = buffer.floatChannelData?[0] else { return 0.0 }
-        
-        let frameCount = Int(buffer.frameLength)
-        guard frameCount > 0 else { return 0.0 }
-        
-        var rms: Float = 0.0
-        vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(frameCount))
-        
-        return rms
-    }
     
     /// Print detailed buffer information
     private func printBufferInfo(_ buffer: AVAudioPCMBuffer, rms: Float, count: Int) {
