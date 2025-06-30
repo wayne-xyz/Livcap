@@ -5,10 +5,9 @@
 //  Created by Rongwei Ji on 6/9/25.
 //
 import Foundation
-import AVFoundation // Still needed for AVAudioEngine
+import AVFoundation
 import Accelerate
-
-
+import OSLog
 
 /// `AudioManager` handles microphone input and audio processing for real-time transcription **on macOS**.
 ///
@@ -19,14 +18,17 @@ import Accelerate
 ///
 ///
 final class MicAudioManager: ObservableObject {
-    // configuration constatn
-    private let frameBufferSize: Int = 4800 // 100ms = 4800/48k float32 , a frame buffer is 4800sample.
-    private let targetSampleRate: Double = 16000.0  // conver the 48k to 16k  , downsampling the input to the sfspeech
     
-    
+    // MARK: - Configuration
+    private let targetSampleRate: Double = 16000.0
+    private var frameBufferSize: Int {
+        guard let inputNode = inputNode else { return 1600 }
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        return Int(recordingFormat.sampleRate * 0.1) // 100ms dynamically
+    }
 
     // MARK: - Published Properties
-    @Published private(set) var isRecording = false //for audio engine
+    @Published private(set) var isRecording = false
 
     // MARK: - Private Properties
     private var audioEngine: AVAudioEngine?
@@ -38,24 +40,35 @@ final class MicAudioManager: ObservableObject {
     private let vadProcessor = VADProcessor()
     private var frameCounter: Int = 0
     
-    // Enhanced audio stream with VAD
+    // SystemAudioManager Pattern: Internal raw audio stream
+    private var rawAudioStreamContinuation: AsyncStream<AVAudioPCMBuffer>.Continuation?
+    private var rawAudioStream: AsyncStream<AVAudioPCMBuffer>?
+    
+    // Enhanced audio stream with VAD (output)
     private var vadAudioStreamContinuation: AsyncStream<AudioFrameWithVAD>.Continuation?
     private var vadAudioStream: AsyncStream<AudioFrameWithVAD>?
+    
+    // Structured processing task
+    private var audioProcessingTask: Task<Void, Never>?
+    
+    // Logging
+    private let logger = Logger(subsystem: "com.livcap.microphone", category: "MicAudioManager")
 
     // MARK: - Initialization
     init() {
         self.audioEngine = AVAudioEngine()
+        logger.info("MicAudioManager initialized with SystemAudioManager pattern")
     }
     
     deinit {
-        stop()
+        forceCleanup()
     }
 
     // MARK: - Public Methods
     func start() async {
         let granted = await requestMicrophonePermission()
         guard granted else {
-            print("macOS Microphone permission denied.")
+            logger.warning("macOS Microphone permission denied.")
             return
         }
 
@@ -65,132 +78,204 @@ final class MicAudioManager: ObservableObject {
     }
     
     func stop() {
-        stopRecording()
+        forceCleanup()
     }
     
-    
-    // Enhanced consumer accessibility point with VAD metadata
+    // MARK: - Stream Interface (SystemAudioManager Pattern)
     func audioFramesWithVAD() -> AsyncStream<AudioFrameWithVAD> {
         if let stream = vadAudioStream {
-            print("********************there is a vadAudioStream")
+            logger.info("********************Returning existing vadAudioStream")
             return stream
         }
-        print("@@@@@@@@@@@@@@@@@@@@there is no a vadAudioStream")
-        self.vadAudioStream = AsyncStream { continuation in
+        
+        logger.info("@@@@@@@@@@@@@@@@@@@@Creating new vadAudioStream")
+        
+        // ✅ Create local variable first, avoid self capture in closure
+        let stream = AsyncStream<AudioFrameWithVAD> { continuation in
             self.vadAudioStreamContinuation = continuation
-            continuation.onTermination = { @Sendable [weak self] _ in
-                self?.stopRecording()
+            continuation.onTermination = { @Sendable _ in
+                // ✅ Don't capture self to avoid retain cycle
+                print("🛑 MicAudioManager VAD stream terminated")
             }
         }
         
-        return self.vadAudioStream!
+        self.vadAudioStream = stream
+        return stream
     }
-    
 
-    // MARK: - Core Audio Logic
+    // MARK: - Core Audio Logic (SystemAudioManager Pattern)
+    
+    @MainActor
     private func startRecording() {
         guard !isRecording else {
-            print("Already recording.")
+            logger.warning("Already recording.")
             return
         }
         
-        // On macOS, we don't need to configure an AVAudioSession.
-        // The engine will use the system's default input device.
+        // ✅ Clean up first WITHOUT changing isRecording
+        cleanupStreamsAndTasks()
         
-        guard let inputNode = inputNode else {
-            print("Failed to get audio input node.")
-            vadAudioStreamContinuation?.finish()
+        guard inputNode != nil else {
+            logger.error("Failed to get audio input node.")
             return
+        }
+        
+        logger.info("🔴 STARTING MICROPHONE CAPTURE")
+        
+        do {
+            try setupMicrophoneCapture()
+            
+            isRecording = true
+            logger.info("✅ MICROPHONE CAPTURE STARTED")
+            
+        } catch {
+            logger.error("❌ Failed to start microphone capture: \(error.localizedDescription)")
+            cleanupStreamsAndTasks()
+        }
+    }
+    
+    // ✅ Setup without calling cleanup() that changes state
+    private func setupMicrophoneCapture() throws {
+        guard let inputNode = inputNode else {
+            throw AudioError.formatCreationFailure
         }
         
         let recordingFormat = inputNode.outputFormat(forBus: 0)
+        logger.info("📊 Microphone format: \(recordingFormat.sampleRate)Hz, \(recordingFormat.channelCount) channels")
+        
+        // Create internal raw audio stream (like SystemAudioManager)
+        let rawStream = AsyncStream<AVAudioPCMBuffer> { continuation in
+            self.rawAudioStreamContinuation = continuation
+            continuation.onTermination = { @Sendable _ in
+                print("🛑 Raw audio stream terminated")
+            }
+        }
+        self.rawAudioStream = rawStream
+        
+        // Install ultra-fast audio tap
+        inputNode.installTap(
+            onBus: 0,
+            bufferSize: AVAudioFrameCount(frameBufferSize),
+            format: recordingFormat
+        ) { [weak self] buffer, time in
+            // ✅ ULTRA-FAST: Just yield to internal stream
+            self?.rawAudioStreamContinuation?.yield(buffer)
+        }
+
+        audioEngine?.prepare()
+        try audioEngine?.start()
+        
+        logger.info("✅ Audio engine started, installing processing task")
+        
+        // Start structured processing
+        processMicrophoneOutput(audioStream: rawStream)
+    }
+    
+    // SystemAudioManager Pattern: Structured concurrency processing
+    private func processMicrophoneOutput(audioStream: AsyncStream<AVAudioPCMBuffer>) {
+        audioProcessingTask = Task {
+            logger.info("🎯 Audio processing task started")
+            
+            for await buffer in audioStream {
+                guard !Task.isCancelled else {
+                    logger.info("🛑 Audio processing task cancelled")
+                    break
+                }
+                // Heavy processing in structured task
+                await processMicrophoneBuffer(buffer)
+            }
+            
+            logger.info("🏁 Audio processing task ended")
+        }
+    }
+    
+    // SystemAudioManager Pattern: Buffer processing
+    private func processMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) async {
+        // Convert to target format
         guard let processingFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: targetSampleRate,
             channels: 1,
             interleaved: false
         ) else {
-            print("Failed to create processing format.")
-            vadAudioStreamContinuation?.finish()
+            logger.error("Failed to create processing format")
             return
         }
-
-        inputNode.installTap(
-            onBus: 0,
-            bufferSize: AVAudioFrameCount(frameBufferSize),
-            format: recordingFormat
-        ) { [weak self] buffer, time in
-            guard let self = self else { return }
-            Task.detached {
-                // Convert to target format (16kHz mono)
-                let pcmBuffer = self.convertBuffer(buffer, to: processingFormat)
-                
-                // Process with new buffer-based VAD (no float conversion needed!)
-                self.processAudioBufferWithVAD(pcmBuffer)
-                
-            }
-        }
-
-        audioEngine?.prepare()
-        do {
-            try audioEngine?.start()
-            Task{ @MainActor in
-                self.isRecording = true
-            }
-        } catch {
-            print("Failed to start audio engine: \(error.localizedDescription)")
-            vadAudioStreamContinuation?.finish()
-        }
-    }
-
-    private func stopRecording() {
-        guard isRecording, let engine = audioEngine, engine.isRunning else { return }
         
-        engine.stop()
-        inputNode?.removeTap(onBus: 0)
+        let convertedBuffer = convertBuffer(buffer, to: processingFormat)
         
-        Task{ @MainActor in
-            self.isRecording = false
-        }
-        vadAudioStreamContinuation?.finish()
-        vadAudioStream=nil
-        
-        // Reset VAD state
-        vadProcessor.reset()
-        frameCounter = 0
-    }
-    
-    // MARK: - VAD Processing
-    
-    private func processAudioBufferWithVAD(_ buffer: AVAudioPCMBuffer) {
+        // VAD processing
         frameCounter += 1
+        let vadResult = vadProcessor.processAudioBuffer(convertedBuffer)
         
-        // Process VAD using new buffer-based method
-        let vadResult = vadProcessor.processAudioBuffer(buffer)
-        
-        // Create enhanced audio frame with buffer
+        // Create enhanced frame
         let audioFrame = AudioFrameWithVAD(
-            buffer: buffer,
+            buffer: convertedBuffer,
             vadResult: vadResult,
             source: .microphone,
             frameIndex: frameCounter
         )
-        // Yield enhanced frame
+        
+        // Yield to output stream
         vadAudioStreamContinuation?.yield(audioFrame)
         
-
+        // Debug log every 100 frames (~10 seconds)
+        if frameCounter % 100 == 0 {
+            logger.info("📦 Processed \(self.frameCounter) microphone frames")
+        }
     }
     
-
+    // MARK: - Cleanup (Fixed)
     
+    // ✅ Public cleanup that respects state
+    private func forceCleanup() {
+        logger.info("🛑 FORCE CLEANUP MICROPHONE")
+        
+        // 1️⃣ Stop audio hardware first
+        if let engine = audioEngine, engine.isRunning {
+            inputNode?.removeTap(onBus: 0)
+            engine.stop()
+            logger.info("🛑 Audio engine stopped")
+        }
+        
+        // 2️⃣ Cancel and clean up streams/tasks
+        cleanupStreamsAndTasks()
+        
+        // 3️⃣ Update state
+        Task { @MainActor in
+            self.isRecording = false
+        }
+        
+        // 4️⃣ Reset processing state
+        vadProcessor.reset()
+        frameCounter = 0
+        
+        logger.info("✅ MICROPHONE CLEANUP COMPLETED")
+    }
     
-    
-    
+    // ✅ Stream and task cleanup without state changes
+    private func cleanupStreamsAndTasks() {
+        logger.info("🧹 Cleaning up streams and tasks")
+        
+        // Cancel structured task
+        audioProcessingTask?.cancel()
+        audioProcessingTask = nil
+        
+        // Clean raw audio stream
+        rawAudioStreamContinuation?.finish()
+        rawAudioStreamContinuation = nil
+        rawAudioStream = nil
+        
+        // Clean VAD stream
+        vadAudioStreamContinuation?.finish()
+        vadAudioStreamContinuation = nil
+        vadAudioStream = nil
+        
+        logger.info("✅ Streams and tasks cleaned")
+    }
     
     // MARK: - Helpers and Utilities
-
-    /// **CHANGED for macOS**: Requests microphone access using AVCaptureDevice.
-    /// Requests microphone access using AVCaptureDevice.
+    
     private func requestMicrophonePermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
@@ -204,17 +289,18 @@ final class MicAudioManager: ObservableObject {
         }
     }
     
-
-    /// Converts the given `AVAudioPCMBuffer` to a different audio format using `AVAudioConverter`.
-    ///
-    /// - Parameters:
-    ///   - buffer: The source audio buffer to be converted.
-    ///   - format: The desired audio format to convert to (e.g., 16kHz mono Float32).
-    /// - Returns: A new `AVAudioPCMBuffer` in the target format if conversion succeeds, otherwise the original buffer.
     private func convertBuffer(_ buffer: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer {
-        guard let converter = AVAudioConverter(from: buffer.format, to: format) else { return buffer }
+        guard let converter = AVAudioConverter(from: buffer.format, to: format) else { 
+            logger.error("Failed to create audio converter")
+            return buffer 
+        }
+        
         let outputFrameCapacity = AVAudioFrameCount((Double(buffer.frameLength) / buffer.format.sampleRate) * format.sampleRate)
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: outputFrameCapacity) else { return buffer }
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: outputFrameCapacity) else { 
+            logger.error("Failed to create output buffer")
+            return buffer 
+        }
+        
         outputBuffer.frameLength = outputFrameCapacity
 
         var error: NSError?
@@ -222,15 +308,18 @@ final class MicAudioManager: ObservableObject {
             outStatus.pointee = .haveData
             return buffer
         }
-        return error == nil ? outputBuffer : buffer
+        
+        if let error = error {
+            logger.error("Buffer conversion error: \(error.localizedDescription)")
+            return buffer
+        }
+        
+        return outputBuffer
     }
-
-
-
 }
 
+// MARK: - Error Types
 
-// Define a custom error type for AudioManager
 enum AudioError: Error, LocalizedError {
     case formatCreationFailure
 
