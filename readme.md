@@ -10,6 +10,20 @@ What happens on your device, stays on your device.
 - No annoying user analytics. If you think something can be improved, email me.
 - Less is more. 
 
+## Performance Comparison:
+
+Livcap vs Built-in Live Caption:
+run simutanously: 
+words percentage faster: 
+
+one word latency comparison avg: 100ms
+
+
+run separately: 
+
+
+
+
 
 
 # Development Introduction
