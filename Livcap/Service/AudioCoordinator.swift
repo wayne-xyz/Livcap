@@ -13,7 +13,7 @@ final class AudioCoordinator {
     
     // Audio managers
     private let micAudioManager = MicAudioManager()
-    private var systemAudioManager: SystemAudioProtocol?
+    private var systemAudioManager: SystemAudioManager?
     
     // Audio source task (only one active at a time)
     private var activeAudioStreamTask: Task<Void, Never>?
@@ -163,7 +163,7 @@ final class AudioCoordinator {
                         }
                     } else if self.isSystemAudioEnabled {
                         if #available(macOS 14.4, *) {
-                            if let systemAudioManager = self.systemAudioManager as? SystemAudioManager {
+                            if let systemAudioManager = self.systemAudioManager {
                                 let systemStream = systemAudioManager.systemAudioStreamWithVAD()
                                 for await frame in systemStream {
                                     if Task.isCancelled { break }

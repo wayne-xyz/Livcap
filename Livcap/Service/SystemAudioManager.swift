@@ -14,7 +14,7 @@ import Combine
 import AppKit
 
 @available(macOS 14.4, *)
-class SystemAudioManager: ObservableObject, SystemAudioProtocol {
+class SystemAudioManager: ObservableObject {
     
     // MARK: - Published Properties
     
