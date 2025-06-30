@@ -3,6 +3,8 @@
 //  Livcap
 //
 //  Created by Rongwei Ji on 6/28/25.
+// com.apple.WebKit.GPU safari
+// com.google.Chrome.helper chrome
 //
 
 import Foundation
@@ -22,10 +24,15 @@ class CoreAudioTapEngineExamples: ObservableObject {
     // MARK: - Private Properties
     private var tapEngine: CoreAudioTapEngine?
     private var audioStreamTask: Task<Void, Never>?
+    private var autoStopTask: Task<Void, Never>?
+    
+    // MARK: - Process Management
+    private let processSupplier = AudioProcessSupplier()
     
     // MARK: - Simple Example Functions
     
     /// Start capturing system audio from all processes and print buffer information
+    /// Automatically stops after 30 seconds
     /// Call this from your SwiftUI view's onAppear
     func startSystemAudioCapture() {
         guard !isRunning else { return }
@@ -33,7 +40,7 @@ class CoreAudioTapEngineExamples: ObservableObject {
         Task {
             do {
                 // Get all running audio processes
-                let processes = try getAllAudioProcesses()
+                let processes = try processSupplier.getProcesses(mode: .all)
                 print("Found \(processes.count) audio processes")
                 
                 // Create and start the tap engine
@@ -52,6 +59,17 @@ class CoreAudioTapEngineExamples: ObservableObject {
                     await processAudioStream(audioStream)
                 }
                 
+                // Start auto-stop timer for 30 seconds
+                autoStopTask = Task {
+                    try? await Task.sleep(nanoseconds: 30 * 1_000_000_000) // 30 seconds
+                    if !Task.isCancelled {
+                        print("⏰ Auto-stopping after 30 seconds...")
+                        await MainActor.run {
+                            stopSystemAudioCapture()
+                        }
+                    }
+                }
+                
             } catch {
                 await MainActor.run {
                     errorMessage = "Failed to start: \(error.localizedDescription)"
@@ -68,15 +86,21 @@ class CoreAudioTapEngineExamples: ObservableObject {
         audioStreamTask?.cancel()
         audioStreamTask = nil
         
+        autoStopTask?.cancel()
+        autoStopTask = nil
+        
         tapEngine?.stop()
         tapEngine = nil
         
         isRunning = false
         bufferCount = 0
         latestRMSValue = 0.0
+        
+        print("🛑 Audio capture stopped")
     }
     
     /// Start capturing from specific processes (e.g., Safari, Chrome)
+    /// Automatically stops after 30 seconds
     /// Usage: startSpecificProcessCapture(["Safari", "Google Chrome"])
     func startSpecificProcessCapture(_ processNames: [String]) {
         
@@ -87,7 +111,7 @@ class CoreAudioTapEngineExamples: ObservableObject {
         
         Task {
             do {
-                let processes = try getProcessesByName(processNames)
+                let processes = try processSupplier.getProcesses(mode: .matching(processNames))
 
 
                 guard !processes.isEmpty else {
@@ -111,6 +135,17 @@ class CoreAudioTapEngineExamples: ObservableObject {
                 
                 audioStreamTask = Task {
                     await processAudioStream(audioStream)
+                }
+                
+                // Start auto-stop timer for 30 seconds
+                autoStopTask = Task {
+                    try? await Task.sleep(nanoseconds: 30 * 1_000_000_000) // 30 seconds
+                    if !Task.isCancelled {
+                        print("⏰ Auto-stopping specific process capture after 30 seconds...")
+                        await MainActor.run {
+                            stopSystemAudioCapture()
+                        }
+                    }
                 }
                 
             } catch {
@@ -179,130 +214,6 @@ class CoreAudioTapEngineExamples: ObservableObject {
         """)
     }
     
-    /// Get all running audio processes
-    private func getAllAudioProcesses() throws -> [AudioObjectID] {
-        var propertySize: UInt32 = 0
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyProcessObjectList,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        
-        var status = AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize
-        )
-        
-        guard status == noErr else {
-            throw CoreAudioTapEngineError.tapCreationFailed(status)
-        }
-        
-        let processCount = Int(propertySize) / MemoryLayout<AudioObjectID>.size
-        var processes = Array<AudioObjectID>(repeating: 0, count: processCount)
-        
-        status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize,
-            &processes
-        )
-        
-        guard status == noErr else {
-            throw CoreAudioTapEngineError.tapCreationFailed(status)
-        }
-        
-        return processes
-    }
-    
-    /// Get processes by their names or bundle IDs
-    private func getProcessesByName(_ names: [String]) throws -> [AudioObjectID] {
-        let allProcesses = try getAllAudioProcesses()
-        var matchingProcesses: [AudioObjectID] = []
-        
-        print("🔍 Searching through \(allProcesses.count) audio processes...")
-        
-        for processID in allProcesses {
-            if let bundleID = try? getProcessName(processID) {
-                print("Found process: \(bundleID)")
-                
-                // Check if this bundle ID matches any of our target names
-                let isMatch = names.contains { targetName in
-                    // Direct bundle ID matching
-                    bundleID.localizedCaseInsensitiveContains(targetName) ||
-                    
-                    // Chrome-specific matching
-                    (targetName.localizedCaseInsensitiveContains("chrome") && 
-                     (bundleID.contains("com.google.Chrome") || bundleID.contains("com.google.chrome"))) ||
-                    
-                    // Safari matching
-                    (targetName.localizedCaseInsensitiveContains("safari") && 
-                     bundleID.contains("com.apple.Safari")) ||
-                    
-                    // Firefox matching
-                    (targetName.localizedCaseInsensitiveContains("firefox") && 
-                     bundleID.contains("org.mozilla.firefox")) ||
-                     
-                    // Edge matching
-                    (targetName.localizedCaseInsensitiveContains("edge") && 
-                     bundleID.contains("com.microsoft.edgemac"))
-                }
-                
-                if isMatch {
-                    print("✅ MATCHED: \(bundleID) for target: \(names)")
-                    matchingProcesses.append(processID)
-                }
-            }
-        }
-        
-        print("🎯 Found \(matchingProcesses.count) matching processes")
-        return matchingProcesses
-    }
-    
-    /// Get the bundle ID of a process by its AudioObjectID
-    private func getProcessName(_ processID: AudioObjectID) throws -> String {
-        // Get the bundle ID using the correct Core Audio property
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioProcessPropertyBundleID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        
-        var propertySize: UInt32 = 0
-        var status = AudioObjectGetPropertyDataSize(
-            processID,
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize
-        )
-        
-        guard status == noErr else {
-            return "Process_\(processID)"
-        }
-        
-        let bundlePointer = UnsafeMutablePointer<CFString?>.allocate(capacity: 1)
-        defer { bundlePointer.deallocate() }
-        
-        status = AudioObjectGetPropertyData(
-            processID,
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize,
-            bundlePointer
-        )
-        
-        guard status == noErr, let bundleString = bundlePointer.pointee else {
-            return "Process_\(processID)"
-        }
-        
-        return bundleString as String
-    }
 }
 
 // MARK: - Convenience Extensions for SwiftUI Integration

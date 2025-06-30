@@ -4,6 +4,7 @@
 //
 //  Created by Rongwei Ji on 6/26/25.
 //  This class encapsulates the low-level Core Audio logic for creating a process tap
+// support multi process engine to emit the buffer which are combined
 
 import Foundation
 import AudioToolbox

@@ -51,7 +51,7 @@ struct CaptionView: View {
         .onAppear {
             // Test CoreAudioTapEngine when view appears
             if #available(macOS 14.4, *) {
-                engineExamples.startBrowserAudioCapture()
+                engineExamples.startSystemAudioCapture()
 
 
             }
