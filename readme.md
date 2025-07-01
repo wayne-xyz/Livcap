@@ -10,6 +10,20 @@ What happens on your device, stays on your device.
 - No annoying user analytics. If you think something can be improved, email me.
 - Less is more. 
 
+## Performance Comparison:
+
+Livcap vs Built-in Live Caption:
+run simutanously: 
+words percentage faster: 
+
+one word latency comparison avg: 100ms
+
+
+run separately: 
+
+
+
+
 
 
 # Development Introduction
@@ -89,6 +103,9 @@ After extensive testing of all three approaches:
 | **Stabilization** | None | LocalAgreement | Pre-inference VAD |
 
 ## Future Work
+
+### Isuse Solve: 
+`invalid display identifier 37D8832A-2D66-02CA-B9F7-8F30A301B230` when happend at the monitor changing. 
 
 - [ ] Compare new API SpeechAnalyzer when macOS 26 is released (non-beta). Nov 2025.
 - [ ] Implement MLX whisper and compare performance. Oct 2025.

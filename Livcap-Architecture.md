@@ -1,719 +1,615 @@
-# Livcap SwiftUI Architecture Design(Concept - Not Implemented, maybe in the future version can be implemented.)
-## Beyond MVVM: A Modern SwiftUI-Native Approach
+# Livcap SwiftUI Architecture Documentation
+## Current Implementation: MVVM with Service Layer Architecture
 
-*Inspired by Thomas Ricouard's ["SwiftUI in 2025: Forget MVVM"](https://dimillian.medium.com/swiftui-in-2025-forget-mvvm-262ff2bbd2ed)*
-
----
-
-## Executive Summary
-
-Thomas Ricouard's revolutionary approach to SwiftUI architecture challenges the traditional MVVM pattern that many iOS developers have carried over from UIKit. His key insight: **"SwiftUI isn't UIKit"** - it was designed from the ground up with a different philosophy that makes ViewModels largely unnecessary.
-
-### The Problem with Current MVVM Approach
-
-Our current Livcap architecture follows traditional MVVM patterns with `ObservableObject` ViewModels like `CaptionViewModel`, which creates several issues:
-
-1. **Over-engineering**: Complex ViewModels with multiple `@Published` properties
-2. **Boilerplate code**: Unnecessary delegation patterns and state synchronization  
-3. **Testing complexity**: Heavy ViewModels that mix business logic with UI state
-4. **Performance**: Multiple published properties causing unnecessary UI updates
-5. **UIKit baggage**: Patterns that don't leverage SwiftUI's strengths
-
-### Thomas Ricouard's Solution: State-Driven Views
-
-Following Ricouard's approach used in successful apps like IceCubes and Medium iOS, we'll adopt a **State-Driven Views** architecture:
-
-- **Views own their state** using `@State` and `enum` state machines
-- **Services provide focused functionality** without publishing UI state
-- **Environment objects** handle app-wide state and dependency injection
-- **Computed properties** break views into smaller, composable components
-- **No ViewModels** - let SwiftUI handle data flow naturally
+Real-time live captioning application for macOS using SwiftUI, Core Audio, and SFSpeechRecognizer.
 
 ---
 
-## Analysis of Ricouard's Architectural Principles
+## 📋 Overview
 
-### 1. The State Enum Pattern
+Livcap implements a clean **MVVM (Model-View-ViewModel) with Service Layer** architecture, optimized for real-time audio processing and live speech recognition. The app provides seamless microphone and system audio capture with live transcription display.
 
-Ricouard consistently uses a single `enum` to represent all possible view states:
+### Core Architecture Principles
 
-```swift
-// From Ricouard's approach
-enum ViewState {
-    case loading
-    case error
-    case requests(_ data: [NotificationsRequest])
-}
-@State private var viewState: ViewState = .loading
-```
-
-**Benefits**:
-- Single source of truth for view state
-- Clear, testable state transitions
-- No complex property combinations
-- Easy snapshot testing
-
-### 2. Environment-Based Architecture
-
-Instead of ViewModels, Ricouard uses SwiftUI's environment system:
-
-```swift
-@Environment(Client.self) private var client
-@Environment(Theme.self) private var theme
-```
-
-**Benefits**:
-- Free dependency injection
-- Testable through environment overrides
-- App-wide state sharing
-- No boilerplate `@ObservableObject` code
-
-### 3. Computed Properties for View Composition
-
-Ricouard breaks views into small, focused computed properties:
-
-```swift
-public var body: some View {
-    List {
-        switch viewState {
-        case .loading:
-            ProgressView()
-        case .error:
-            ErrorView(title: "notifications.error.title") {
-                await fetchRequests()
-            }
-        case let .requests(data):
-            ForEach(data) { request in
-                NotificationsRequestsRowView(request: request)
-            }
-        }
-    }
-}
-```
-
-**Benefits**:
-- Highly readable view body
-- Testable individual components
-- Easy to reason about
-- Performance optimized
+1. **MVVM Pattern**: Clear separation between UI (Views), business logic (ViewModels), and data (Models)
+2. **Service Layer**: Focused, single-responsibility services for audio capture and speech processing
+3. **Reactive UI**: SwiftUI with Combine for real-time data flow
+4. **Async/Await**: Modern concurrency for audio processing pipelines
+5. **Stream-based Architecture**: AsyncStream for audio data flow
 
 ---
 
-## Current Livcap Architecture Analysis
+## 🏗️ Architecture
 
-### Problems with Current Structure
+### System Architecture Diagram
 
-```swift
-// Current: Heavy ViewModel with mixed responsibilities (566 lines!)
-final class CaptionViewModel: ObservableObject {
-    @Published private(set) var isRecording = false
-    @Published private(set) var isMicrophoneEnabled = false  
-    @Published private(set) var isSystemAudioEnabled = false
-    @Published var statusText: String = "Ready to record"
+```mermaid
+graph TD
+    subgraph "SwiftUI Views Layer"
+        A[CaptionView] --> B[WindowControlButtons]
+        A --> C[CircularControlButton]
+        A --> D[PermissionWarningBanner]
+        E[AppRouterView] --> A
+        E --> D
+    end
     
-    // Forwarded properties creating tight coupling
-    var captionHistory: [CaptionEntry] { speechRecognitionManager.captionHistory }
-    var currentTranscription: String { speechRecognitionManager.currentTranscription }
+    subgraph "ViewModel Layer"
+        F[CaptionViewModel] --> G[PermissionManager]
+        A --> F
+        D --> G
+    end
     
-    // Direct service management (tight coupling)
-    private let micAudioManager = MicAudioManager()
-    private let speechRecognitionManager = SpeechRecognitionManager()
-    // ... 500+ more lines of mixed concerns
-}
+    subgraph "Service Layer"
+        F --> H[AudioCoordinator]
+        F --> I[SpeechProcessor]
+        H --> J[MicAudioManager]
+        H --> K[SystemAudioManager]
+        I --> L[SpeechRecognitionManager]
+    end
+    
+    subgraph "Foundation Layer"
+        J --> M[VADProcessor]
+        K --> M
+        K --> N[CoreAudioTapEngine]
+        L --> O[SFSpeechRecognizer]
+        J --> P[AVAudioEngine]
+    end
+    
+    subgraph "Data Models"
+        Q[CaptionEntry]
+        R[AudioFrameWithVAD]
+        S[AudioVADResult]
+    end
+    
+    I -.->|produces| Q
+    J -.->|produces| R
+    K -.->|produces| R
+    M -.->|produces| S
+    
+    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:3px
+    style F fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style H fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    style I fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
 ```
 
-### Issues Identified
+### Data Flow Architecture
 
-1. **State Explosion**: 4+ `@Published` properties creating 16 possible combinations
-2. **Mixed Responsibilities**: UI state + business logic + service coordination
-3. **Tight Coupling**: Direct service instantiation in ViewModel
-4. **Delegation Complexity**: Multiple delegate protocols for communication
-5. **Testing Difficulty**: Monolithic ViewModel hard to test in isolation
-6. **Performance**: Unnecessary re-renders from multiple published properties
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant UI as CaptionView
+    participant VM as CaptionViewModel
+    participant AC as AudioCoordinator
+    participant MIC as MicAudioManager
+    participant SYS as SystemAudioManager
+    participant SP as SpeechProcessor
+    participant SR as SpeechRecognitionManager
+    
+    User->>UI: Toggle Microphone
+    UI->>VM: toggleMicrophone()
+    VM->>AC: toggleMicrophone()
+    AC->>MIC: start()
+    MIC-->>AC: audioFramesWithVAD()
+    AC-->>VM: audioFrameStream()
+    VM->>SP: processAudioFrame()
+    SP->>SR: appendAudioBufferWithVAD()
+    SR->>SR: SFSpeechRecognizer Processing
+    
+    loop Real-time Transcription
+        SR-->>SP: speechEvents()
+        SP-->>VM: objectWillChange.send()
+        VM-->>UI: @Published updates
+        UI-->>User: Live Caption Display
+    end
+    
+    User->>UI: Toggle System Audio
+    UI->>VM: toggleSystemAudio()
+    VM->>AC: toggleSystemAudio()
+    AC->>MIC: stop()
+    AC->>SYS: startCapture()
+    SYS-->>AC: systemAudioStreamWithVAD()
+```
+
+### Audio Processing Pipeline
+
+```mermaid
+graph LR
+    subgraph "Audio Input Sources"
+        A[Microphone Input] 
+        B[System Audio Input]
+    end
+    
+    subgraph "Audio Managers"
+        C[MicAudioManager]
+        D[SystemAudioManager]
+    end
+    
+    subgraph "Processing"
+        E[VADProcessor]
+        F[Format Conversion]
+        G[Buffer Accumulation]
+    end
+    
+    subgraph "Speech Recognition"
+        H[SpeechRecognitionManager]
+        I[SFSpeechRecognizer]
+    end
+    
+    subgraph "UI Output"
+        J[Live Transcription]
+        K[Caption History]
+    end
+    
+    A --> C
+    B --> D
+    C --> E
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+    I --> J
+    I --> K
+    
+    style A fill:#ffeb3b
+    style B fill:#ffeb3b
+    style C fill:#4caf50
+    style D fill:#4caf50
+    style E fill:#ff9800
+    style I fill:#2196f3
+    style J fill:#e91e63
+    style K fill:#e91e63
+```
 
 ---
 
-## The New Architecture: Ricouard-Inspired State-Driven Views
+## 🔐 Permission System Architecture
 
-### Core Principles Applied to Livcap
+### Simplified Non-Blocking Permission Flow
 
-1. **Single State Enum**: Replace multiple `@Published` properties with one state enum
-2. **Environment Services**: Inject pure services via `@Environment`
-3. **View-Owned State**: Move UI state into views where it belongs
-4. **Computed View Breakdown**: Split complex views into focused computed properties
-5. **Pure Services**: Business logic without UI publishing concerns
+Livcap uses a **simplified 3-state permission approach** that prioritizes user experience and follows native macOS patterns:
 
-### Architecture Layers
+#### Permission States
+1. **✅ Granted** - Feature works normally
+2. **❌ Denied** - Show warning banner with System Settings link
+3. **❓ Not Determined** - Let system handle permission request automatically
 
+#### Permission Flow Sequence
+```mermaid
+graph TD
+    A[App Launches] --> B[Check for Denied Permissions]
+    B -->|No Denied Permissions| C[Show CaptionView Only]
+    B -->|Has Denied Permissions| D[Show CaptionView + Warning Banner]
+    
+    C --> E[User Clicks Microphone]
+    D --> E
+    
+    E -->|Permission Denied| F[Open System Settings]
+    E -->|Permission Not Determined| G[System Shows Permission Dialog]
+    E -->|Permission Granted| H[Enable Microphone]
+    
+    G -->|User Grants| H
+    G -->|User Denies| I[Show Warning Banner Next Time]
+    
+    F --> J[User Manually Enables in Settings]
+    J --> K[Restart App Required]
+    
+    style A fill:#e3f2fd
+    style H fill:#c8e6c9
+    style F fill:#ffcdd2
+    style I fill:#ffcdd2
 ```
-┌─────────────────────────────────────────┐
-│              SwiftUI Views              │
-│        (State-Driven Components)       │  ← Views own their UI state
-├─────────────────────────────────────────┤
-│           Environment Layer             │
-│      (App-wide State & Services)        │  ← @Observable services via @Environment
-├─────────────────────────────────────────┤
-│            Service Layer                │
-│     (Pure Business Logic Services)     │  ← No @Published properties
-├─────────────────────────────────────────┤
-│            Foundation Layer             │
-│    (Core Audio, Speech, File System)   │  ← Platform APIs
-└─────────────────────────────────────────┘
-```
+
+#### Key Principles
+- **Never Block**: Always show main interface, never show blocking permission screens
+- **System Native**: Let macOS handle permission request timing and UI
+- **Denial Only**: Only intervene when permissions are explicitly denied
+- **Clear Guidance**: Provide clear instructions for fixing denied permissions
 
 ---
 
-## Implementation Strategy
+## 📁 Component Details
 
-### 1. Ricouard's State Enum Pattern for Livcap
+### View Layer
 
-Replace the complex ViewModel with focused view state:
+#### `CaptionView.swift` - **Main Caption UI**
+**Role**: Primary user interface providing adaptive layout and real-time caption display.
 
+**Key Features**:
+- **Adaptive Layout**: Automatically switches between compact (≤100pt height) and expanded layouts
+- **Real-time Display**: Live transcription with auto-scroll to current content
+- **Animation System**: First-content animation with smooth transitions
+- **Control Integration**: Window controls, audio toggles, pin functionality
+
+**Key Properties**:
 ```swift
 struct CaptionView: View {
-    // Single state enum following Ricouard's pattern
-    enum ViewState {
-        case idle
-        case microphoneOnly(transcription: String, history: [CaptionEntry])
-        case systemAudioOnly(transcription: String, history: [CaptionEntry])
-        case mixedAudio(transcription: String, history: [CaptionEntry])
-        case error(message: String)
-    }
-    
-    @State private var viewState: ViewState = .idle
+    @StateObject private var captionViewModel: CaptionViewModel
     @State private var isPinned = false
+    @State private var isHovering = false
     @State private var showWindowControls = false
     
-    // Ricouard's environment pattern
-    @Environment(AudioCaptureService.self) private var audioService
-    @Environment(SpeechRecognitionService.self) private var speechService
-    @Environment(AppSettings.self) private var settings
+    // Animation state for first content appearance
+    @State private var hasShownFirstContentAnimation = false
+    @State private var firstContentAnimationOffset: CGFloat = 30
+    @State private var firstContentAnimationOpacity: Double = 0
+}
+```
+
+#### `WindowControlButtons.swift` - **Custom macOS Controls**
+**Role**: Custom traffic light window controls with hover effects.
+
+#### `CircularControlButton.swift` - **Reusable Control Component**
+**Role**: Standardized button component with hover animations and material backgrounds.
+
+#### `PermissionWarningBanner.swift` - **Non-blocking Permission Warning**
+**Role**: Displays warning message when permissions are explicitly denied, with option to open System Settings.
+
+**Key Features**:
+- **Non-blocking Design**: Shows warning but doesn't prevent app usage
+- **System Settings Integration**: Direct link to macOS Privacy Settings
+- **Dismissible**: User can hide banner temporarily
+- **Denied-only Display**: Only appears when permissions are explicitly denied (not for "not determined" state)
+
+### ViewModel Layer
+
+#### `CaptionViewModel.swift` - **Main Coordinator**
+**Role**: Central coordinator managing audio sources and forwarding speech data to UI.
+
+**Key Responsibilities**:
+- Coordinate microphone and system audio (mutual exclusivity)
+- Manage recording state lifecycle
+- Forward caption data from services to UI
+- Handle reactive state management
+- Simple permission checking (only for denied permissions)
+
+**Key Properties**:
+```swift
+final class CaptionViewModel: ObservableObject {
+    @Published private(set) var isMicrophoneEnabled: Bool = false
+    @Published private(set) var isSystemAudioEnabled: Bool = false
+    @Published private(set) var isRecording = false
+    @Published var statusText: String = "Ready to record"
     
-    var body: some View {
-        // Ricouard's switch-based view body
-        switch viewState {
-        case .idle:
-            idleStateView
-        case .microphoneOnly(let transcription, let history):
-            captureView(transcription: transcription, history: history, source: "microphone")
-        case .systemAudioOnly(let transcription, let history):
-            captureView(transcription: transcription, history: history, source: "system")
-        case .mixedAudio(let transcription, let history):
-            captureView(transcription: transcription, history: history, source: "mixed")
-        case .error(let message):
-            errorView(message: message)
+    // Forwarded from services
+    var captionHistory: [CaptionEntry] { speechProcessor.captionHistory }
+    var currentTranscription: String { speechProcessor.currentTranscription }
+}
+```
+
+#### `PermissionManager.swift` - **Simplified Permission Handler**
+**Role**: Lightweight permission status checker focused only on denied permissions.
+
+**Key Features**:
+- **Simplified 3-State Model**: Only tracks denied, granted, not-determined
+- **System-Native Requests**: Lets macOS handle permission dialogs automatically
+- **Denial-Only Warnings**: Shows warning messages only for explicitly denied permissions
+- **System Settings Integration**: Direct links to Privacy & Security settings
+
+**Core Philosophy**:
+```swift
+// Only handle explicitly denied permissions - let system handle the rest
+func isMicrophoneDenied() -> Bool {
+    let status = AVCaptureDevice.authorizationStatus(for: .audio)
+    return status == .denied || status == .restricted
+}
+```
+
+### Service Layer
+
+#### `AudioCoordinator.swift` - **Audio Source Manager**
+**Role**: Central coordinator ensuring mutual exclusivity between audio sources.
+
+**Key Features**:
+- **Mutual Exclusivity**: Only one audio source active at a time
+- **Unified Stream**: Single `audioFrameStream()` regardless of source
+- **Automatic Switching**: Seamless transitions between microphone and system audio
+
+#### `SpeechProcessor.swift` - **Speech Event Handler**
+**Role**: Processes speech recognition events and forwards to UI layer.
+
+#### `MicAudioManager.swift` - **Microphone Capture**
+**Role**: Handles microphone audio capture with VAD processing.
+
+**Key Features**:
+- 16kHz mono audio capture optimized for speech recognition
+- Real-time VAD (Voice Activity Detection)
+- AsyncStream-based audio pipeline
+- Automatic format conversion and buffer management
+
+#### `SystemAudioManager.swift` - **System Audio Capture**
+**Role**: System-wide audio capture using CoreAudioTapEngine (macOS 14.4+).
+
+#### `SpeechRecognitionManager.swift` - **Speech Recognition Engine**
+**Role**: Interfaces with SFSpeechRecognizer for real-time transcription.
+
+### Foundation Layer
+
+#### `VADProcessor.swift` - **Voice Activity Detection**
+**Role**: Real-time voice activity detection using RMS energy analysis.
+
+**Algorithm**:
+```swift
+private let energyThreshold: Float = 0.01
+private let speechCountThreshold = 1
+private let silenceCountThreshold = 2
+```
+
+---
+
+## 🎨 Design System & Colors
+
+### Color Scheme
+
+#### Primary Background Colors
+```swift
+// Assets.xcassets/BackgroundColor.colorset/Contents.json
+Light Mode: #EAEAEA (RGB: 234, 234, 234) - opacity: 1.0
+Dark Mode:  #212121 (RGB: 33, 33, 33)   - opacity: 1.0
+
+// Usage in code
+extension Color {
+    static let backgroundColor = Color("BackgroundColor")
+}
+```
+
+#### System Adaptive Colors
+- **Primary Text**: `.primary` (system adaptive black/white)
+- **Secondary Text**: `.secondary` (system adaptive gray)
+- **Control Active State**: `.primary`
+- **Control Inactive State**: `.secondary`
+
+#### Window Control Colors (Traffic Lights)
+```swift
+// Close Button
+closeButton: Color.red.opacity(0.8)     // Default
+closeButton: Color.red.opacity(1.0)     // Hover
+
+// Minimize Button  
+minimizeButton: Color.yellow.opacity(0.8)   // Default
+minimizeButton: Color.yellow.opacity(1.0)   // Hover
+
+// Maximize Button
+maximizeButton: Color.green.opacity(0.8)    // Default
+maximizeButton: Color.green.opacity(1.0)    // Hover
+```
+
+### Material & Visual Effects
+
+#### Background Materials
+```swift
+// Main window background
+.fill(Color.backgroundColor)
+.background(.ultraThinMaterial, in: Rectangle())
+.opacity(0.7)
+
+// Button backgrounds
+.fill(.ultraThinMaterial)
+.opacity(isButtonHovering ? 1 : 0.5)
+```
+
+#### Corner Radius & Shadows
+```swift
+// Window corner radius
+cornerRadius: 8 // Continuous style
+
+// Button shadows
+.shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+```
+
+---
+
+## 🎬 Animation System
+
+### 1. First Content Animation ✨
+
+**The signature "first impression" animation when captions first appear**
+
+#### Animation Parameters for Video Production
+```swift
+// === COPY THESE VALUES FOR VIDEO EDITING ===
+
+// Movement Animation
+startPosition: +30 pixels below natural position
+endPosition: 0 pixels (natural position)
+direction: Bottom to Up
+
+// Opacity Animation  
+startOpacity: 0% (completely transparent)
+endOpacity: 100% (completely opaque)
+
+// Timing
+totalDuration: 0.6 seconds
+animationType: Spring Animation
+springResponse: 0.6 seconds
+springDamping: 0.8 (0.8 = subtle bounce, 1.0 = no bounce)
+blendDuration: 0.1 seconds
+
+// Video Software Equivalent
+easingCurve: "Ease Out Back" or "Spring" with slight bounce
+alternativeEasing: "Ease Out Quart" (if spring unavailable)
+```
+
+#### Key Frame Timeline (0.6 seconds total)
+```
+Time: Position: Opacity:
+0.0s  +30px    0%     (start below, invisible)
+0.1s  +25px    15%    (moving up, fading in)
+0.2s  +15px    40%    (accelerating up)
+0.3s  +5px     70%    (approaching final position)
+0.4s  -2px     90%    (slight overshoot - bounce effect)
+0.5s  +1px     95%    (settle back down)
+0.6s  0px      100%   (final position, fully visible)
+```
+
+#### Implementation Code
+```swift
+private func triggerFirstContentAnimation() {
+    guard !hasShownFirstContentAnimation else { return }
+    
+    withAnimation(.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0.1)) {
+        firstContentAnimationOffset = 0      // Move to natural position
+        firstContentAnimationOpacity = 1.0   // Fade to full opacity
+    }
+    
+    hasShownFirstContentAnimation = true
+}
+```
+
+### 2. Auto-Scroll Animation
+
+**Smooth scrolling to keep current transcription visible**
+
+#### Parameters
+```swift
+duration: 0.3 seconds
+easing: .easeOut
+anchor: .bottom
+trigger: onChange(of: captionViewModel.currentTranscription)
+```
+
+### 3. Control Button Animations
+
+#### Hover Effects
+```swift
+// Control button hover
+duration: 0.2 seconds
+easing: .easeInOut
+opacity: 0.5 → 1.0 (on hover)
+
+// Control visibility
+duration: 0.2 seconds  
+easing: .easeInOut
+opacity: 0.0 → 1.0 (on window hover)
+scale: 0.8 → 1.0 (on appear)
+```
+
+#### Traffic Light Hover
+```swift
+duration: 0.2 seconds
+easing: .easeInOut
+opacity: 0.8 → 1.0 (on hover)
+```
+
+### 4. Window Management Animations
+
+#### Window Control Appearance
+```swift
+duration: 0.2 seconds
+easing: .easeInOut
+opacity: 0.0 → 1.0
+scale: 0.8 → 1.0
+```
+
+#### Window Maximize/Restore
+```swift
+duration: 0.3 seconds
+easing: .easeInOut
+```
+
+---
+
+## 📊 Performance Characteristics
+
+### Audio Processing Performance
+
+#### Microphone Capture
+- **Sample Rate**: 16kHz (optimized for speech recognition)
+- **Channels**: Mono (single channel)
+- **Format**: Float32 PCM
+- **Buffer Size**: Dynamic based on device (typically ~100ms)
+- **Latency**: <50ms end-to-end
+
+#### System Audio Capture (macOS 14.4+)
+- **Sample Rate**: 16kHz (converted from source)
+- **Channels**: Mono (stereo mixdown)
+- **Format**: Float32 PCM
+- **Processing**: Real-time via CoreAudioTapEngine
+- **Target Processes**: All system audio processes
+
+### Memory Management
+
+#### Stream-Based Processing
+- **Zero-Copy Operations**: Direct buffer processing where possible
+- **SIMD Optimization**: vDSP for RMS calculations
+- **Async Cleanup**: Proper task cancellation and resource cleanup
+- **Weak References**: Prevent retain cycles in closures
+
+#### UI Performance
+- **LazyVStack**: Efficient scrollable caption history
+- **Computed Properties**: Decomposed view components
+- **Conditional Rendering**: Based on window state and content availability
+
+---
+
+## 🔧 Technical Implementation Details
+
+### Mutual Audio Source Exclusivity
+
+The `AudioCoordinator` ensures only one audio source is active at a time:
+
+```swift
+func toggleMicrophone() {
+    if isMicrophoneEnabled {
+        stopMicrophone()
+    } else {
+        if isSystemAudioEnabled {
+            stopSystemAudio()  // Stop system audio first
         }
+        startMicrophone()
     }
 }
 ```
 
-### 2. Environment Services (Ricouard's Dependency Injection)
+### Stream-Based Data Flow
 
-Create focused, pure services following Ricouard's patterns:
-
-```swift
-// Following Ricouard's @Observable pattern
-@Observable
-final class AudioCaptureService {
-    // Internal state - not published to UI
-    private(set) var isMicrophoneActive = false
-    private(set) var isSystemAudioActive = false
-    private(set) var audioLevel: Float = 0.0
-    
-    // Pure service dependencies (like Ricouard's Client)
-    private let micManager = MicAudioManager()
-    private let systemManager = SystemAudioManager()
-    
-    // Pure business logic methods (like Ricouard's network calls)
-    func toggleMicrophone() async throws {
-        if isMicrophoneActive {
-            await micManager.stop()
-            isMicrophoneActive = false
-        } else {
-            await micManager.start()
-            isMicrophoneActive = true
-        }
-    }
-    
-    func toggleSystemAudio() async throws {
-        if isSystemAudioActive {
-            systemManager.stopCapture()
-            isSystemAudioActive = false
-        } else {
-            try await systemManager.startCapture()
-            isSystemAudioActive = true
-        }
-    }
-    
-    // Return streams for view consumption
-    func audioStream() -> AsyncStream<AudioFrameWithVAD> {
-        // Combine microphone and system audio streams
-    }
-}
-
-// Speech recognition following Ricouard's patterns
-@Observable  
-final class SpeechRecognitionService {
-    // Simple state properties (not @Published!)
-    private(set) var currentTranscription = ""
-    private(set) var captionHistory: [CaptionEntry] = []
-    private(set) var isProcessing = false
-    
-    // Pure business logic methods
-    func startRecognition(audioStream: AsyncStream<AudioFrameWithVAD>) async {
-        isProcessing = true
-        // Process audio and update transcription
-        for await frame in audioStream {
-            // Process frame and update transcription
-        }
-    }
-    
-    func stopRecognition() {
-        isProcessing = false
-    }
-    
-    func clearHistory() {
-        captionHistory.removeAll()
-        currentTranscription = ""
-    }
-}
-```
-
-### 3. Computed Properties for View Composition (Ricouard's Style)
-
-Break views into small, focused computed properties like Ricouard does:
+Audio data flows through AsyncStreams for optimal performance:
 
 ```swift
-extension CaptionView {
-    // Ricouard's computed property pattern
-    @ViewBuilder
-    private var idleStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "waveform")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            
-            Text("Ready to Capture")
-                .font(.headline)
-            
-            Text("Enable microphone or system audio to start transcription")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding()
-    }
-    
-    @ViewBuilder
-    private func captureView(transcription: String, history: [CaptionEntry], source: String) -> some View {
-        VStack(spacing: 0) {
-            // Top controls
-            controlsView(source: source)
-            
-            // Transcription content
-            transcriptionContentView(transcription: transcription, history: history)
-        }
-    }
-    
-    @ViewBuilder 
-    private func controlsView(source: String) -> some View {
-        HStack {
-            WindowControlButtons(isVisible: $showWindowControls)
-            
-            Spacer()
-            
-            // Source indicator
-            Label(source.capitalized, systemImage: sourceIcon(for: source))
-                .foregroundStyle(.secondary)
-                .font(.caption)
-            
-            Spacer()
-            
-            // Action buttons
-            audioControlButtons
-            pinButton
-        }
-        .padding()
-    }
-    
-    @ViewBuilder
-    private var audioControlButtons: some View {
-        HStack(spacing: 8) {
-            Button(action: { Task { try? await audioService.toggleSystemAudio() } }) {
-                audioButtonView(
-                    isActive: audioService.isSystemAudioActive,
-                    activeIcon: "macbook",
-                    inactiveIcon: "macbook.slash"
-                )
-            }
-            
-            Button(action: { Task { try? await audioService.toggleMicrophone() } }) {
-                audioButtonView(
-                    isActive: audioService.isMicrophoneActive,
-                    activeIcon: "mic.fill", 
-                    inactiveIcon: "mic.slash"
-                )
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private func transcriptionContentView(transcription: String, history: [CaptionEntry]) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    // History entries
-                    ForEach(history) { entry in
-                        captionEntryView(entry)
-                    }
-                    
-                    // Current transcription
-                    if !transcription.isEmpty {
-                        currentTranscriptionView(transcription)
-                            .id("current")
-                    }
-                }
-                .padding()
-            }
-            .onChange(of: transcription) {
-                withAnimation(.easeOut(duration: 0.3)) {
-                    proxy.scrollTo("current", anchor: .bottom)
-                }
-            }
-        }
-    }
-    
-    // Helper computed properties (Ricouard's style)
-    private func sourceIcon(for source: String) -> String {
-        switch source {
-        case "microphone": return "mic.fill"
-        case "system": return "macbook"
-        case "mixed": return "waveform.circle"
-        default: return "questionmark.circle"
-        }
-    }
-}
-```
-
-### 4. Ricouard's Service Communication Pattern
-
-Replace delegation with async streams and observation:
-
-```swift
-struct CaptionView: View {
-    @State private var viewState: ViewState = .idle
-    @Environment(AudioCaptureService.self) private var audioService
-    @Environment(SpeechRecognitionService.self) private var speechService
-    
-    var body: some View {
-        contentView
-            .task {
-                // Ricouard's async observation pattern
-                await observeAudioChanges()
-            }
-            .task {
-                await observeSpeechChanges()
-            }
-    }
-    
-    // Following Ricouard's simple async patterns
-    private func observeAudioChanges() async {
-        // React to audio service state changes
+// Unified audio stream regardless of source
+func audioFrameStream() -> AsyncStream<AudioFrameWithVAD> {
+    AsyncStream { continuation in
         while !Task.isCancelled {
-            let currentAudioState = (audioService.isMicrophoneActive, audioService.isSystemAudioActive)
-            await updateViewStateForAudio(currentAudioState)
-            
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second polling
-        }
-    }
-    
-    private func observeSpeechChanges() async {
-        // Start speech recognition when audio is active
-        let audioStream = audioService.audioStream()
-        await speechService.startRecognition(audioStream: audioStream)
-    }
-    
-    @MainActor
-    private func updateViewStateForAudio(_ audioState: (mic: Bool, system: Bool)) async {
-        let transcription = speechService.currentTranscription
-        let history = speechService.captionHistory
-        
-        // Simple state mapping (Ricouard's clear switch style)
-        switch audioState {
-        case (true, false):
-            viewState = .microphoneOnly(transcription: transcription, history: history)
-        case (false, true):
-            viewState = .systemAudioOnly(transcription: transcription, history: history)
-        case (true, true):
-            viewState = .mixedAudio(transcription: transcription, history: history)
-        case (false, false):
-            viewState = .idle
+            if self.isMicrophoneEnabled {
+                // Process microphone stream
+            } else if self.isSystemAudioEnabled {
+                // Process system audio stream  
+            }
         }
     }
 }
 ```
 
----
+### Voice Activity Detection
 
-## Environment Setup (Ricouard's Pattern)
-
-Following Ricouard's environment injection approach:
+Real-time VAD using energy-based detection with state machine:
 
 ```swift
-// In LivcapApp.swift - following Ricouard's app setup
-@main
-struct LivcapApp: App {
-    // Create service instances (like Ricouard's app-level services)
-    @State private var audioService = AudioCaptureService()
-    @State private var speechService = SpeechRecognitionService()
-    @State private var appSettings = AppSettings()
-    
-    var body: some Scene {
-        WindowGroup {
-            AppRouterView()
-                // Ricouard's environment injection pattern
-                .environment(audioService)
-                .environment(speechService)
-                .environment(appSettings)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-    }
-}
+private let energyThreshold: Float = 0.01
+private let speechCountThreshold = 1    // Frames to confirm speech
+private let silenceCountThreshold = 2   // Frames to confirm silence
 
-// App settings following Ricouard's simple patterns
-@Observable
-final class AppSettings {
-    var windowOpacity: Double = 0.9
-    var autoStartMicrophone = false
-    var maxCaptionHistory = 100
-    var fontSize: CGFloat = 22
+func processAudioBuffer(_ buffer: AVAudioPCMBuffer) -> AudioVADResult {
+    var rms: Float = 0.0
+    vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(buffer.frameLength))
     
-    // Simple persistence (Ricouard keeps things simple)
-    private let userDefaults = UserDefaults.standard
-    
-    init() {
-        loadSettings()
-    }
-    
-    private func loadSettings() {
-        windowOpacity = userDefaults.double(forKey: "windowOpacity")
-        autoStartMicrophone = userDefaults.bool(forKey: "autoStartMicrophone")
-        maxCaptionHistory = userDefaults.integer(forKey: "maxCaptionHistory")
-        fontSize = userDefaults.double(forKey: "fontSize")
-    }
-    
-    func saveSettings() {
-        userDefaults.set(windowOpacity, forKey: "windowOpacity")
-        userDefaults.set(autoStartMicrophone, forKey: "autoStartMicrophone")
-        userDefaults.set(maxCaptionHistory, forKey: "maxCaptionHistory")
-        userDefaults.set(fontSize, forKey: "fontSize")
-    }
+    // State machine logic for speech/silence detection
+    // Returns: AudioVADResult(isSpeech: Bool, confidence: Float, rmsEnergy: Float)
 }
 ```
 
 ---
 
-## Testing Strategy (Ricouard's Approach)
 
-### 1. Service Unit Testing (What Ricouard Tests)
 
-Following Ricouard's testing philosophy - test the building blocks:
+## 📝 Conclusion
 
-```swift
-final class AudioCaptureServiceTests: XCTestCase {
-    func testMicrophoneToggle() async throws {
-        let service = AudioCaptureService()
-        
-        // Test state transitions (what Ricouard recommends testing)
-        XCTAssertFalse(service.isMicrophoneActive)
-        
-        try await service.toggleMicrophone()
-        XCTAssertTrue(service.isMicrophoneActive)
-        
-        try await service.toggleMicrophone()
-        XCTAssertFalse(service.isMicrophoneActive)
-    }
-    
-    func testSystemAudioToggle() async throws {
-        let service = AudioCaptureService()
-        
-        XCTAssertFalse(service.isSystemAudioActive)
-        
-        try await service.toggleSystemAudio()
-        XCTAssertTrue(service.isSystemAudioActive)
-    }
-}
+Livcap's current MVVM with Service Layer architecture successfully balances real-time performance requirements with maintainable SwiftUI patterns. The modular service layer enables easy testing and future enhancements, while the reactive UI ensures smooth user experience during live transcription sessions.
 
-final class SpeechRecognitionServiceTests: XCTestCase {
-    func testTranscriptionProcessing() async {
-        let service = SpeechRecognitionService()
-        
-        // Test business logic
-        XCTAssertTrue(service.captionHistory.isEmpty)
-        XCTAssertEqual(service.currentTranscription, "")
-        
-        // Simulate transcription updates
-        // ... test core functionality
-    }
-}
-```
+The **simplified permission system** follows native macOS patterns by letting the system handle permission requests automatically, only intervening when permissions are explicitly denied. This non-blocking approach ensures users can always access the main interface while receiving clear guidance for resolving permission issues.
 
-### 2. View Snapshot Testing (Ricouard's Preferred View Testing)
-
-Following Ricouard's recommendation for view testing - snapshot tests:
-
-```swift
-final class CaptionViewTests: XCTestCase {
-    func testIdleState() {
-        let view = CaptionView()
-            .environment(AudioCaptureService())
-            .environment(SpeechRecognitionService())
-            .environment(AppSettings())
-        
-        // Ricouard's approach: snapshot test the visual result
-        assertSnapshot(matching: view, as: .image)
-    }
-    
-    func testMicrophoneOnlyState() {
-        let audioService = AudioCaptureService()
-        let speechService = SpeechRecognitionService()
-        
-        // Set up test state
-        Task { try await audioService.toggleMicrophone() }
-        
-        let view = CaptionView()
-            .environment(audioService)
-            .environment(speechService)
-            .environment(AppSettings())
-        
-        assertSnapshot(matching: view, as: .image)
-    }
-}
-```
-
-### 3. Environment Testing (Ricouard's Dependency Injection Testing)
-
-```swift
-final class EnvironmentTests: XCTestCase {
-    func testServiceInjection() {
-        let mockAudioService = MockAudioCaptureService()
-        let mockSpeechService = MockSpeechRecognitionService()
-        
-        let view = CaptionView()
-            .environment(mockAudioService)
-            .environment(mockSpeechService)
-        
-        // Test that view receives injected dependencies
-        // Ricouard: "Environments is literally free dependency injection"
-    }
-}
-```
+The stream-based audio processing pipeline provides optimal performance for real-time applications, and the comprehensive animation system creates an engaging user experience with professional polish.
 
 ---
 
-## Migration Plan
-
-### Phase 1: Service Extraction (Week 1)
-
-Following Ricouard's incremental approach:
-
-1. **Extract Pure Services**
-   - Create `AudioCaptureService` from `CaptionViewModel` audio logic
-   - Create `SpeechRecognitionService` from `SpeechRecognitionManager`
-   - Remove `@Published` properties from services
-
-2. **Environment Setup**
-   - Configure environment injection in `LivcapApp.swift`
-   - Test environment propagation
-
-### Phase 2: State Enum Implementation (Week 2)
-
-1. **Implement Ricouard's State Pattern**
-   - Replace `CaptionViewModel` with view-local `ViewState` enum
-   - Implement state transitions based on service changes
-
-2. **Computed Properties**
-   - Break `CaptionView` into Ricouard-style computed properties
-   - Implement clear switch-based view body
-
-### Phase 3: Testing & Optimization (Week 3)
-
-1. **Testing Implementation**
-   - Add unit tests for pure services
-   - Implement snapshot tests for view states
-
-2. **Performance Optimization**
-   - Optimize state updates
-   - Minimize view re-renders
-
----
-
-## Benefits of Ricouard's Approach for Livcap
-
-### 1. **Dramatic Code Simplification**
-- **Before**: 566-line monolithic `CaptionViewModel`
-- **After**: Focused services + clean view state management
-
-### 2. **Better Performance**
-- Single state enum vs. multiple `@Published` properties
-- Computed properties optimize re-rendering
-- SwiftUI-native optimization
-
-### 3. **Improved Testability**
-- Pure services can be unit tested (Ricouard: "test your building blocks")
-- View states can be snapshot tested
-- Environment allows easy mocking
-
-### 4. **SwiftUI-Native Architecture**
-- Leverages SwiftUI's strengths instead of fighting them
-- No UIKit baggage
-- Future-proof with SwiftUI evolution
-
-### 5. **Maintainability**
-- Clear separation of concerns
-- Easy to reason about data flow
-- Follows Apple's recommended patterns
-
----
-
-## Key Insights from Ricouard's Approach
-
-### 1. "You don't need ViewModels in SwiftUI"
-- Views can manage their own state with `@State`
-- Services provide functionality without UI concerns
-- Environment provides app-wide state
-
-### 2. "State, Published, Observed, and Observable objects"
-- Use SwiftUI's built-in property wrappers
-- `@Observable` for services (iOS 17+)
-- `@Environment` for dependency injection
-
-### 3. "Make small views, small view model, everything private"
-- Break views into computed properties
-- Keep services focused and private
-- Minimize public interfaces
-
-### 4. "SwiftUI allows far simpler architecture"
-- Don't add boilerplate above SwiftUI
-- Let the framework handle data flow
-- Trust SwiftUI's reactive nature
-
----
-
-## Conclusion
-
-By applying Thomas Ricouard's "Forget MVVM" philosophy to Livcap, we achieve:
-
-- **Cleaner, more maintainable code** with clear separation of concerns
-- **Better performance** through SwiftUI-native state management
-- **Improved testability** with pure services and snapshot testing
-- **Future-ready architecture** that evolves with SwiftUI
-- **Reduced complexity** by removing unnecessary abstraction layers
-
-This transformation will make Livcap a showcase of modern SwiftUI architecture, demonstrating how real-time audio applications can benefit from embracing the framework's declarative, reactive nature.
-
-As Ricouard states: *"SwiftUI allows you to make a very powerful self-contained system with a minimal amount of code."* This architecture delivers exactly that for Livcap.
-
----
-
-*This architecture design is inspired by Thomas Ricouard's excellent insights in ["SwiftUI in 2025: Forget MVVM"](https://dimillian.medium.com/swiftui-in-2025-forget-mvvm-262ff2bbd2ed) and his practical implementations in IceCubes, Medium iOS, and other successful SwiftUI applications.* 
+*This documentation reflects the current implementation and includes practical specifications for video production, design reference, and technical implementation details.* 

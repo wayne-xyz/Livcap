@@ -3,7 +3,7 @@
 //  Livcap
 //
 //  Created by Rongwei Ji on 6/8/25.
-//  Enhanced to handle both microphone and system audio permissions
+//  Simplified to only handle denied permissions - system handles requests automatically
 //
 
 import AVFoundation
@@ -11,6 +11,7 @@ import Combine
 import AppKit
 import AudioToolbox
 import OSLog
+import Speech
 
 // MARK: - Permission Status Enum
 
@@ -50,174 +51,117 @@ enum PermissionStatus: String, CaseIterable {
 class PermissionManager: ObservableObject {
     static let shared = PermissionManager()
     
-    // MARK: - Microphone Permissions
-    @Published var micPermissionGranted: Bool = false
+    // MARK: - Permission Status Properties
     @Published var micPermissionStatus: AVAuthorizationStatus = .notDetermined
-    
-    // MARK: - System Audio Permissions
+    @Published var speechPermissionStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
     @Published var systemAudioPermissionStatus: PermissionStatus = .unknown
+    
+    // MARK: - Denial Check Properties (for warning messages)
+    @Published var hasDeniedPermissions: Bool = false
+    @Published var deniedPermissionMessage: String = ""
     
     // MARK: - Private Properties
     private let logger = Logger(subsystem: "com.livcap.permissions", category: "PermissionManager")
 
     init() {
-        checkAllPermissions()
-        logger.info("PermissionManager initialized")
+        checkDeniedPermissionsOnLoad()
+        logger.info("PermissionManager initialized - simplified approach")
     }
 
-    // MARK: - Public Interface
+    // MARK: - Simple Permission Checks
     
-    /// Check all permission statuses
-    func checkAllPermissions() {
-        checkMicPermission()
-        if #available(macOS 14.4, *) {
-            checkSystemAudioPermission()
-        } else {
-            DispatchQueue.main.async {
-                self.systemAudioPermissionStatus = .unsupported
-            }
+    /// Check if any permissions are explicitly denied (for warning message on app load)
+    func checkDeniedPermissionsOnLoad() {
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        
+        self.micPermissionStatus = micStatus
+        self.speechPermissionStatus = speechStatus
+        
+        var deniedPermissions: [String] = []
+        
+        // Check microphone
+        if micStatus == .denied || micStatus == .restricted {
+            deniedPermissions.append("Microphone")
         }
+        
+        // Check speech recognition  
+        if speechStatus == .denied || speechStatus == .restricted {
+            deniedPermissions.append("Speech Recognition")
+        }
+        
+        // Update denial state
+        if deniedPermissions.isEmpty {
+            hasDeniedPermissions = false
+            deniedPermissionMessage = ""
+        } else {
+            hasDeniedPermissions = true
+            deniedPermissionMessage = createDenialMessage(deniedPermissions)
+        }
+        
+        logger.info("Denied permissions check: \(deniedPermissions)")
     }
     
-    /// Check if all required permissions are granted
-    func hasAllRequiredPermissions() -> Bool {
-        return micPermissionGranted && systemAudioPermissionStatus == .authorized
+    private func createDenialMessage(_ deniedPermissions: [String]) -> String {
+        let permissionList = deniedPermissions.joined(separator: " and ")
+        return "\(permissionList) access denied. Please enable in System Settings > Privacy & Security to use this feature. And restart the Livcap"
     }
+
+    // MARK: - Simple Permission Status Checks
     
-    // MARK: - Microphone Permission Methods
-    
-    func checkMicPermission() {
+    /// Check if microphone is explicitly denied (user needs to go to System Settings)
+    func isMicrophoneDenied() -> Bool {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        DispatchQueue.main.async {
-            self.micPermissionStatus = status
-            self.micPermissionGranted = (status == .authorized)
-        }
-        logger.info("Microphone permission status: \(status.rawValue)")
+        return status == .denied || status == .restricted
     }
     
-    // Function to request permission.
-    // This handles both initial requests and guiding the user after denial.
-    func requestMicPermission() {
-        let currentStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    /// Check if speech recognition is explicitly denied (user needs to go to System Settings)
+    func isSpeechRecognitionDenied() -> Bool {
+        let status = SFSpeechRecognizer.authorizationStatus()
+        return status == .denied || status == .restricted
+    }
+    
+    /// Check if either microphone or speech recognition is denied
+    func hasEssentialPermissionsDenied() -> Bool {
+        return isMicrophoneDenied() || isSpeechRecognitionDenied()
+    }
 
-        switch currentStatus {
-        case .notDetermined:
-            // This is the initial request, where the system prompt will appear.
-            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-                DispatchQueue.main.async { // Ensure UI updates on main thread
-                    self?.micPermissionGranted = granted
-                    self?.micPermissionStatus = granted ? .authorized : .denied
-                    print("Prompt result - micPermissionGranted: \(self?.micPermissionGranted ?? false)")
-                }
-            }
-        case .denied, .restricted:
-            // User has previously denied or system restricts access.
-            // We cannot programmatically show the prompt again.
-            // Guide the user to System Settings.
-            print("Microphone permission denied or restricted. Guiding user to System Settings.")
-            openSystemSettingsForMicPermission()
-            // Update status immediately as it's already denied/restricted
-            DispatchQueue.main.async {
-                self.micPermissionGranted = false
-                self.micPermissionStatus = currentStatus
-            }
-        case .authorized:
-            // Permission already granted. No action needed, just confirm state.
-            print("Microphone permission already authorized.")
-            DispatchQueue.main.async {
-                self.micPermissionGranted = true
-                self.micPermissionStatus = .authorized
-            }
-        @unknown default:
-            // Handle future unknown cases gracefully
-            print("Unknown microphone authorization status.")
-            DispatchQueue.main.async {
-                self.micPermissionGranted = false
-                self.micPermissionStatus = .notDetermined // Or a more appropriate default
-            }
-        }
-    }
+    // MARK: - System Settings Helpers
     
-    // Helper to open System Settings directly to the Microphone Privacy pane
-    private func openSystemSettingsForMicPermission() {
+    func openSystemSettingsForMicPermission() {
+        logger.info("Opening System Settings for microphone permission")
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-            NSWorkspace.shared.open(url)
-        } else {
-            // Fallback if the URL scheme changes or is not supported
-            print("Could not open specific microphone privacy settings. Opening general privacy settings.")
-            if let generalPrivacyURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
-                NSWorkspace.shared.open(generalPrivacyURL)
-            }
-        }
-    }
-    
-    // MARK: - System Audio Permission Methods
-    
-    @available(macOS 14.4, *)
-    func checkSystemAudioPermission() {
-        // System audio permission can't be easily checked without trying to capture
-        // Set to unknown initially, will be updated when attempting capture
-        DispatchQueue.main.async {
-            self.systemAudioPermissionStatus = .unknown
-        }
-        logger.info("System audio permission status set to unknown (requires runtime check)")
-    }
-    
-    @available(macOS 14.4, *)
-    func requestSystemAudioPermission() async -> Bool {
-        logger.info("Requesting system audio permission")
-        
-        do {
-            // Try to access Core Audio system processes to test permission
-            let processObjectIDs = try AudioObjectID.system.readProcessList()
-            
-            if !processObjectIDs.isEmpty {
-                // If we can read the process list, we likely have permission
-                DispatchQueue.main.async {
-                    self.systemAudioPermissionStatus = .authorized
-                }
-                logger.info("System audio permission granted")
-                return true
-            } else {
-                DispatchQueue.main.async {
-                    self.systemAudioPermissionStatus = .denied
-                }
-                logger.warning("System audio permission denied - empty process list")
-                return false
-            }
-            
-        } catch {
-            logger.error("System audio permission check failed: \(error.localizedDescription)")
-            
-            // Check if this is a permission error
-            if error.localizedDescription.contains("permission") || 
-               error.localizedDescription.contains("authorization") ||
-               error.localizedDescription.contains("denied") {
-                DispatchQueue.main.async {
-                    self.systemAudioPermissionStatus = .denied
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.systemAudioPermissionStatus = .unknown
-                }
-            }
-            
-            return false
-        }
-    }
-    
-    /// Open System Settings to audio capture privacy panel
-    func openSystemAudioSettings() {
-        logger.info("Opening System Settings for audio capture permissions")
-        
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture") {
             NSWorkspace.shared.open(url)
         } else {
             openGeneralPrivacySettings()
         }
     }
     
-    /// Check if system audio capture is supported on this macOS version
+    func openSystemSettingsForSpeechPermission() {
+        logger.info("Opening System Settings for speech recognition permission")
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") {
+            NSWorkspace.shared.open(url)
+        } else {
+            openGeneralPrivacySettings()
+        }
+    }
+    
+    private func openGeneralPrivacySettings() {
+        if let generalURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
+            NSWorkspace.shared.open(generalURL)
+        } else {
+            logger.error("Failed to open System Settings")
+        }
+    }
+
+    // MARK: - System Audio Methods (unchanged for now)
+    
+    @available(macOS 14.4, *)
+    func checkSystemAudioPermission() {
+        self.systemAudioPermissionStatus = .unknown
+        logger.info("System audio permission status set to unknown (will be checked when user enables feature)")
+    }
+    
     func isSystemAudioCaptureSupported() -> Bool {
         if #available(macOS 14.4, *) {
             return true
@@ -225,54 +169,45 @@ class PermissionManager: ObservableObject {
             return false
         }
     }
+
+    // MARK: - Legacy Methods (simplified for compatibility)
     
-    /// Get user-friendly system audio permission status description
-    func getSystemAudioPermissionDescription() -> String {
-        switch systemAudioPermissionStatus {
-        case .unknown:
-            return "Permission status unknown. System audio capture may require user authorization."
-        case .authorized:
-            return "System audio capture is authorized and ready to use."
-        case .denied:
-            return "System audio capture permission has been denied. Please enable it in System Settings."
-        case .unsupported:
-            return "System audio capture requires macOS 14.4 or later."
+    /// Legacy method - now just updates current status without blocking flow
+    func checkAllPermissions() {
+        checkDeniedPermissionsOnLoad()
+    }
+    
+    /// Legacy method - simplified to check basic authorization
+    func hasAllRequiredPermissions() -> Bool {
+        return micPermissionStatus == .authorized && speechPermissionStatus == .authorized
+    }
+    
+    func hasAllPermissionsIncludingSystemAudio() -> Bool {
+        return micPermissionStatus == .authorized && 
+               speechPermissionStatus == .authorized && 
+               systemAudioPermissionStatus == .authorized
+    }
+    
+    // Legacy individual permission methods (simplified)
+    func checkMicPermission() {
+        micPermissionStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    }
+    
+    func checkSpeechPermission() {
+        speechPermissionStatus = SFSpeechRecognizer.authorizationStatus()
+    }
+    
+    // Legacy request methods - now just open system settings if denied
+    func requestMicPermission() {
+        if isMicrophoneDenied() {
+            openSystemSettingsForMicPermission()
         }
     }
     
-    /// Get user-friendly microphone permission status description
-    func getMicrophonePermissionDescription() -> String {
-        switch micPermissionStatus {
-        case .notDetermined:
-            return "Microphone permission has not been requested yet."
-        case .authorized:
-            return "Microphone access is authorized and ready to use."
-        case .denied, .restricted:
-            return "Microphone access has been denied. Please enable it in System Settings."
-        @unknown default:
-            return "Microphone permission status is unknown."
-        }
-    }
-    
-    /// Check if system audio permission UI should be shown
-    func shouldShowSystemAudioPermissionUI() -> Bool {
-        return systemAudioPermissionStatus == .denied || systemAudioPermissionStatus == .unsupported
-    }
-    
-    /// Check if microphone permission UI should be shown
-    func shouldShowMicrophonePermissionUI() -> Bool {
-        return micPermissionStatus == .denied || micPermissionStatus == .restricted
-    }
-    
-    // MARK: - Helper Methods
-    
-    private func openGeneralPrivacySettings() {
-        logger.info("Opening general privacy settings as fallback")
-        
-        if let generalURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
-            NSWorkspace.shared.open(generalURL)
-        } else {
-            logger.error("Failed to open System Settings")
+    func requestSpeechPermission() {
+        if isSpeechRecognitionDenied() {
+            openSystemSettingsForSpeechPermission()
         }
     }
 }
+
