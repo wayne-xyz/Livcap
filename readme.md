@@ -104,6 +104,9 @@ After extensive testing of all three approaches:
 
 ## Future Work
 
+### Isuse Solve: 
+`invalid display identifier 37D8832A-2D66-02CA-B9F7-8F30A301B230` when happend at the monitor changing. 
+
 - [ ] Compare new API SpeechAnalyzer when macOS 26 is released (non-beta). Nov 2025.
 - [ ] Implement MLX whisper and compare performance. Oct 2025.
    - [ ] Add KV cache support. 

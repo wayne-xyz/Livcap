@@ -33,6 +33,7 @@ final class CaptionViewModel: ObservableObject {
     // MARK: - Private Properties
     private let audioCoordinator: AudioCoordinator
     private let speechProcessor: SpeechProcessor
+    private let permissionManager = PermissionManager.shared
     
     private var cancellables = Set<AnyCancellable>()
     private var audioStreamTask: Task<Void, Never>?
@@ -76,16 +77,36 @@ final class CaptionViewModel: ObservableObject {
             .store(in: &cancellables)
     }
     
-    // MARK: - Main control functions
+    // MARK: - Main control functions (Simplified: Let system handle permission requests)
     
     func toggleMicrophone() {
+        // If trying to enable microphone, check if permissions are denied
+        if !isMicrophoneEnabled {
+            // Check if essential permissions are denied
+            if permissionManager.hasEssentialPermissionsDenied() {
+                logger.warning("🚫 Microphone toggle cancelled - essential permissions denied")
+                
+                // Optionally open system settings or just show warning
+                if permissionManager.isMicrophoneDenied() {
+                    permissionManager.openSystemSettingsForMicPermission()
+                } else if permissionManager.isSpeechRecognitionDenied() {
+                    permissionManager.openSystemSettingsForSpeechPermission()
+                }
+                return
+            }
+            
+            // If not denied, just try to enable - system will handle permission requests
+            logger.info("🎤 Enabling microphone - system will handle permissions if needed")
+        }
+        
+        // Toggle microphone (system handles permission requests automatically)
         audioCoordinator.toggleMicrophone()
-        // Removed: manageRecordingState() - now handled reactively!
     }
     
     func toggleSystemAudio() {
+        // For system audio, just toggle directly
+        // System audio permission handling can be added later if needed
         audioCoordinator.toggleSystemAudio()
-        // Removed: manageRecordingState() - now handled reactively!
     }
     
     // MARK: - Auto Speech Recognition Management

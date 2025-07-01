@@ -28,7 +28,7 @@ graph TD
     subgraph "SwiftUI Views Layer"
         A[CaptionView] --> B[WindowControlButtons]
         A --> C[CircularControlButton]
-        A --> D[PermissionView]
+        A --> D[PermissionWarningBanner]
         E[AppRouterView] --> A
         E --> D
     end
@@ -163,6 +163,51 @@ graph LR
 
 ---
 
+## 🔐 Permission System Architecture
+
+### Simplified Non-Blocking Permission Flow
+
+Livcap uses a **simplified 3-state permission approach** that prioritizes user experience and follows native macOS patterns:
+
+#### Permission States
+1. **✅ Granted** - Feature works normally
+2. **❌ Denied** - Show warning banner with System Settings link
+3. **❓ Not Determined** - Let system handle permission request automatically
+
+#### Permission Flow Sequence
+```mermaid
+graph TD
+    A[App Launches] --> B[Check for Denied Permissions]
+    B -->|No Denied Permissions| C[Show CaptionView Only]
+    B -->|Has Denied Permissions| D[Show CaptionView + Warning Banner]
+    
+    C --> E[User Clicks Microphone]
+    D --> E
+    
+    E -->|Permission Denied| F[Open System Settings]
+    E -->|Permission Not Determined| G[System Shows Permission Dialog]
+    E -->|Permission Granted| H[Enable Microphone]
+    
+    G -->|User Grants| H
+    G -->|User Denies| I[Show Warning Banner Next Time]
+    
+    F --> J[User Manually Enables in Settings]
+    J --> K[Restart App Required]
+    
+    style A fill:#e3f2fd
+    style H fill:#c8e6c9
+    style F fill:#ffcdd2
+    style I fill:#ffcdd2
+```
+
+#### Key Principles
+- **Never Block**: Always show main interface, never show blocking permission screens
+- **System Native**: Let macOS handle permission request timing and UI
+- **Denial Only**: Only intervene when permissions are explicitly denied
+- **Clear Guidance**: Provide clear instructions for fixing denied permissions
+
+---
+
 ## 📁 Component Details
 
 ### View Layer
@@ -197,6 +242,15 @@ struct CaptionView: View {
 #### `CircularControlButton.swift` - **Reusable Control Component**
 **Role**: Standardized button component with hover animations and material backgrounds.
 
+#### `PermissionWarningBanner.swift` - **Non-blocking Permission Warning**
+**Role**: Displays warning message when permissions are explicitly denied, with option to open System Settings.
+
+**Key Features**:
+- **Non-blocking Design**: Shows warning but doesn't prevent app usage
+- **System Settings Integration**: Direct link to macOS Privacy Settings
+- **Dismissible**: User can hide banner temporarily
+- **Denied-only Display**: Only appears when permissions are explicitly denied (not for "not determined" state)
+
 ### ViewModel Layer
 
 #### `CaptionViewModel.swift` - **Main Coordinator**
@@ -207,6 +261,7 @@ struct CaptionView: View {
 - Manage recording state lifecycle
 - Forward caption data from services to UI
 - Handle reactive state management
+- Simple permission checking (only for denied permissions)
 
 **Key Properties**:
 ```swift
@@ -219,6 +274,24 @@ final class CaptionViewModel: ObservableObject {
     // Forwarded from services
     var captionHistory: [CaptionEntry] { speechProcessor.captionHistory }
     var currentTranscription: String { speechProcessor.currentTranscription }
+}
+```
+
+#### `PermissionManager.swift` - **Simplified Permission Handler**
+**Role**: Lightweight permission status checker focused only on denied permissions.
+
+**Key Features**:
+- **Simplified 3-State Model**: Only tracks denied, granted, not-determined
+- **System-Native Requests**: Lets macOS handle permission dialogs automatically
+- **Denial-Only Warnings**: Shows warning messages only for explicitly denied permissions
+- **System Settings Integration**: Direct links to Privacy & Security settings
+
+**Core Philosophy**:
+```swift
+// Only handle explicitly denied permissions - let system handle the rest
+func isMicrophoneDenied() -> Bool {
+    let status = AVCaptureDevice.authorizationStatus(for: .audio)
+    return status == .denied || status == .restricted
 }
 ```
 
@@ -532,6 +605,8 @@ func processAudioBuffer(_ buffer: AVAudioPCMBuffer) -> AudioVADResult {
 ## 📝 Conclusion
 
 Livcap's current MVVM with Service Layer architecture successfully balances real-time performance requirements with maintainable SwiftUI patterns. The modular service layer enables easy testing and future enhancements, while the reactive UI ensures smooth user experience during live transcription sessions.
+
+The **simplified permission system** follows native macOS patterns by letting the system handle permission requests automatically, only intervening when permissions are explicitly denied. This non-blocking approach ensures users can always access the main interface while receiving clear guidance for resolving permission issues.
 
 The stream-based audio processing pipeline provides optimal performance for real-time applications, and the comprehensive animation system creates an engaging user experience with professional polish.
 
