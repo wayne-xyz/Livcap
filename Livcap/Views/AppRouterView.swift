@@ -13,7 +13,7 @@ struct AppRouterView: View {
 
     var body: some View {
         Group {
-            if permissionState.micPermissionGranted {
+            if permissionState.hasAllRequiredPermissions() {
                 CaptionView()
             } else {
                 PermissionView()
@@ -23,7 +23,7 @@ struct AppRouterView: View {
         // to re-check permission status.
         .onAppear {
             //update the permission state
-            permissionState.checkMicPermission()
+            permissionState.checkAllPermissions()
             debugLog("AppRouter Appear")
             
             // Position window at bottom center, just above Dock

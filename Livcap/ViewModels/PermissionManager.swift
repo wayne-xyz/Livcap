@@ -11,6 +11,7 @@ import Combine
 import AppKit
 import AudioToolbox
 import OSLog
+import Speech
 
 // MARK: - Permission Status Enum
 
@@ -57,6 +58,10 @@ class PermissionManager: ObservableObject {
     // MARK: - System Audio Permissions
     @Published var systemAudioPermissionStatus: PermissionStatus = .unknown
     
+    // MARK: - Speech Recognition Permissions
+    @Published var speechPermissionGranted: Bool = false
+    @Published var speechPermissionStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
+    
     // MARK: - Private Properties
     private let logger = Logger(subsystem: "com.livcap.permissions", category: "PermissionManager")
 
@@ -70,6 +75,7 @@ class PermissionManager: ObservableObject {
     /// Check all permission statuses
     func checkAllPermissions() {
         checkMicPermission()
+        checkSpeechPermission()
         if #available(macOS 14.4, *) {
             checkSystemAudioPermission()
         } else {
@@ -81,7 +87,9 @@ class PermissionManager: ObservableObject {
     
     /// Check if all required permissions are granted
     func hasAllRequiredPermissions() -> Bool {
-        return micPermissionGranted && systemAudioPermissionStatus == .authorized
+        return micPermissionGranted && 
+               speechPermissionGranted && 
+               systemAudioPermissionStatus == .authorized
     }
     
     // MARK: - Microphone Permission Methods
@@ -151,48 +159,149 @@ class PermissionManager: ObservableObject {
         }
     }
     
+    // MARK: - Speech Recognition Permission Methods
+    
+    func checkSpeechPermission() {
+        let status = SFSpeechRecognizer.authorizationStatus()
+        DispatchQueue.main.async {
+            self.speechPermissionStatus = status
+            self.speechPermissionGranted = (status == .authorized)
+        }
+        logger.info("Speech recognition permission status: \(status.rawValue)")
+    }
+    
+    func requestSpeechPermission() {
+        let currentStatus = SFSpeechRecognizer.authorizationStatus()
+        
+        switch currentStatus {
+        case .notDetermined:
+            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+                DispatchQueue.main.async {
+                    self?.speechPermissionGranted = (status == .authorized)
+                    self?.speechPermissionStatus = status
+                    print("Speech permission result - speechPermissionGranted: \(self?.speechPermissionGranted ?? false)")
+                }
+            }
+        case .denied, .restricted:
+            print("Speech recognition permission denied or restricted. Guiding user to System Settings.")
+            openSystemSettingsForSpeechPermission()
+            DispatchQueue.main.async {
+                self.speechPermissionGranted = false
+                self.speechPermissionStatus = currentStatus
+            }
+        case .authorized:
+            print("Speech recognition permission already authorized.")
+            DispatchQueue.main.async {
+                self.speechPermissionGranted = true
+                self.speechPermissionStatus = .authorized
+            }
+        @unknown default:
+            print("Unknown speech recognition authorization status.")
+            DispatchQueue.main.async {
+                self.speechPermissionGranted = false
+                self.speechPermissionStatus = .notDetermined
+            }
+        }
+    }
+    
+    private func openSystemSettingsForSpeechPermission() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") {
+            NSWorkspace.shared.open(url)
+        } else {
+            print("Could not open specific speech recognition privacy settings. Opening general privacy settings.")
+            openGeneralPrivacySettings()
+        }
+    }
+    
     // MARK: - System Audio Permission Methods
     
     @available(macOS 14.4, *)
     func checkSystemAudioPermission() {
-        // System audio permission can't be easily checked without trying to capture
-        // Set to unknown initially, will be updated when attempting capture
-        DispatchQueue.main.async {
-            self.systemAudioPermissionStatus = .unknown
+        // Try to check if permission was previously granted by attempting a quick test
+        // If this fails without prompt, permission was likely denied
+        // If this succeeds, permission was previously granted
+        
+        Task {
+            do {
+                let processSupplier = AudioProcessSupplier()
+                let allProcesses = try processSupplier.getProcesses(mode: .all)
+                
+                if !allProcesses.isEmpty {
+                    // Create a very quick test to see if we can access without prompting
+                    let testEngine = CoreAudioTapEngine(forProcesses: Array(allProcesses.prefix(1)))
+                    
+                    // Try to start briefly - if permission was previously granted, this should work
+                    let _ = try testEngine.coreAudioTapStream()
+                    try await testEngine.start()
+                    
+                    // Success - permission was previously granted
+                    testEngine.stop()
+                    DispatchQueue.main.async {
+                        self.systemAudioPermissionStatus = .authorized
+                    }
+                    logger.info("System audio permission already granted")
+                } else {
+                    DispatchQueue.main.async {
+                        self.systemAudioPermissionStatus = .unknown
+                    }
+                }
+            } catch {
+                // Failed - either no permission or first time
+                DispatchQueue.main.async {
+                    self.systemAudioPermissionStatus = .unknown
+                }
+                logger.info("System audio permission status unknown - requires user prompt")
+            }
         }
-        logger.info("System audio permission status set to unknown (requires runtime check)")
     }
     
     @available(macOS 14.4, *)
     func requestSystemAudioPermission() async -> Bool {
-        logger.info("Requesting system audio permission")
+        logger.info("System audio permission request - using CoreAudioTapEngine test")
         
         do {
-            // Try to access Core Audio system processes to test permission
-            let processObjectIDs = try AudioObjectID.system.readProcessList()
+            // Get all system processes for testing
+            let processSupplier = AudioProcessSupplier()
+            let allProcesses = try processSupplier.getProcesses(mode: .all)
             
-            if !processObjectIDs.isEmpty {
-                // If we can read the process list, we likely have permission
-                DispatchQueue.main.async {
-                    self.systemAudioPermissionStatus = .authorized
-                }
-                logger.info("System audio permission granted")
-                return true
-            } else {
+            guard !allProcesses.isEmpty else {
+                logger.error("No system processes found for permission test")
                 DispatchQueue.main.async {
                     self.systemAudioPermissionStatus = .denied
                 }
-                logger.warning("System audio permission denied - empty process list")
                 return false
             }
             
+            // Create a test CoreAudioTapEngine - this will trigger the permission prompt
+            logger.info("Creating test CoreAudioTapEngine to trigger permission prompt...")
+            let testEngine = CoreAudioTapEngine(forProcesses: allProcesses)
+            
+            // Get the stream first (required before starting)
+            let _ = try testEngine.coreAudioTapStream()
+            
+            // Start the engine - this will call AudioHardwareCreateProcessTap() and trigger permission prompt
+            try await testEngine.start()
+            
+            // If we reach here, permission was granted
+            logger.info("System audio permission granted!")
+            DispatchQueue.main.async {
+                self.systemAudioPermissionStatus = .authorized
+            }
+            
+            // Immediately stop and cleanup the test engine
+            testEngine.stop()
+            
+            return true
+            
         } catch {
-            logger.error("System audio permission check failed: \(error.localizedDescription)")
+            logger.error("System audio permission denied or failed: \(error.localizedDescription)")
             
             // Check if this is a permission error
-            if error.localizedDescription.contains("permission") || 
-               error.localizedDescription.contains("authorization") ||
-               error.localizedDescription.contains("denied") {
+            let errorDescription = error.localizedDescription.lowercased()
+            if errorDescription.contains("permission") || 
+               errorDescription.contains("authorization") ||
+               errorDescription.contains("denied") ||
+               errorDescription.contains("access") {
                 DispatchQueue.main.async {
                     self.systemAudioPermissionStatus = .denied
                 }
@@ -204,6 +313,15 @@ class PermissionManager: ObservableObject {
             
             return false
         }
+    }
+    
+    /// Update system audio permission status based on capture attempt result
+    @available(macOS 14.4, *)
+    func updateSystemAudioPermissionStatus(granted: Bool) {
+        DispatchQueue.main.async {
+            self.systemAudioPermissionStatus = granted ? .authorized : .denied
+        }
+        logger.info("System audio permission status updated: \(granted ? "authorized" : "denied")")
     }
     
     /// Open System Settings to audio capture privacy panel
@@ -254,6 +372,20 @@ class PermissionManager: ObservableObject {
         }
     }
     
+    /// Get user-friendly speech recognition permission status description
+    func getSpeechPermissionDescription() -> String {
+        switch speechPermissionStatus {
+        case .notDetermined:
+            return "Speech recognition permission has not been requested yet."
+        case .authorized:
+            return "Speech recognition is authorized and ready to use."
+        case .denied, .restricted:
+            return "Speech recognition access has been denied. Please enable it in System Settings."
+        @unknown default:
+            return "Speech recognition permission status is unknown."
+        }
+    }
+    
     /// Check if system audio permission UI should be shown
     func shouldShowSystemAudioPermissionUI() -> Bool {
         return systemAudioPermissionStatus == .denied || systemAudioPermissionStatus == .unsupported
@@ -262,6 +394,11 @@ class PermissionManager: ObservableObject {
     /// Check if microphone permission UI should be shown
     func shouldShowMicrophonePermissionUI() -> Bool {
         return micPermissionStatus == .denied || micPermissionStatus == .restricted
+    }
+    
+    /// Check if speech recognition permission UI should be shown
+    func shouldShowSpeechPermissionUI() -> Bool {
+        return speechPermissionStatus == .denied || speechPermissionStatus == .restricted
     }
     
     // MARK: - Helper Methods
