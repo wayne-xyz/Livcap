@@ -6,11 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		CC699FFB2DFA3B57003A8C03 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = CC699FFA2DFA3B57003A8C03 /* MLX */; };
-		CC699FFD2DFA3B63003A8C03 /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = CC699FFC2DFA3B63003A8C03 /* MLXNN */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		CC20B3632DEE2BC800DC19E3 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -28,19 +23,6 @@
 		};
 /* End PBXContainerItemProxy section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		CC8472352E00FDC0007B06E4 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXFileReference section */
 		CC20B3522DEE2BC800DC19E3 /* Livcap.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Livcap.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC20B3622DEE2BC800DC19E3 /* LivcapTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LivcapTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -57,25 +39,11 @@
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
-/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-		CC8472362E00FDC0007B06E4 /* Exceptions for "Livcap" folder in "Embed Frameworks" phase from "Livcap" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			attributesByRelativePath = {
-				CoreWhisperCpp/whisper.xcframework = (CodeSignOnCopy, RemoveHeadersOnCopy, );
-			};
-			buildPhase = CC8472352E00FDC0007B06E4 /* Embed Frameworks */;
-			membershipExceptions = (
-				CoreWhisperCpp/whisper.xcframework,
-			);
-		};
-/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		CC20B3542DEE2BC800DC19E3 /* Livcap */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				CC699FB82DF57B34003A8C03 /* Exceptions for "Livcap" folder in "Livcap" target */,
-				CC8472362E00FDC0007B06E4 /* Exceptions for "Livcap" folder in "Embed Frameworks" phase from "Livcap" target */,
 			);
 			path = Livcap;
 			sourceTree = "<group>";
@@ -97,8 +65,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CC699FFD2DFA3B63003A8C03 /* MLXNN in Frameworks */,
-				CC699FFB2DFA3B57003A8C03 /* MLX in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -157,7 +123,6 @@
 				CC20B34E2DEE2BC800DC19E3 /* Sources */,
 				CC20B34F2DEE2BC800DC19E3 /* Frameworks */,
 				CC20B3502DEE2BC800DC19E3 /* Resources */,
-				CC8472352E00FDC0007B06E4 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -168,8 +133,6 @@
 			);
 			name = Livcap;
 			packageProductDependencies = (
-				CC699FFA2DFA3B57003A8C03 /* MLX */,
-				CC699FFC2DFA3B63003A8C03 /* MLXNN */,
 			);
 			productName = Livcap;
 			productReference = CC20B3522DEE2BC800DC19E3 /* Livcap.app */;
@@ -254,7 +217,6 @@
 			mainGroup = CC20B3492DEE2BC800DC19E3;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				CC699FF82DFA2F80003A8C03 /* XCRemoteSwiftPackageReference "mlx-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC20B3532DEE2BC800DC19E3 /* Products */;
@@ -624,30 +586,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		CC699FF82DFA2F80003A8C03 /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ml-explore/mlx-swift.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.25.4;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		CC699FFA2DFA3B57003A8C03 /* MLX */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC699FF82DFA2F80003A8C03 /* XCRemoteSwiftPackageReference "mlx-swift" */;
-			productName = MLX;
-		};
-		CC699FFC2DFA3B63003A8C03 /* MLXNN */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC699FF82DFA2F80003A8C03 /* XCRemoteSwiftPackageReference "mlx-swift" */;
-			productName = MLXNN;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = CC20B34A2DEE2BC800DC19E3 /* Project object */;
 }
