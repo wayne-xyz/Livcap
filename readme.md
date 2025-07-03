@@ -4,6 +4,9 @@
 
 # Livcap
 
+This branch is the development for the mlx model support.
+
+
 
 A live caption app for macOS. 
 >Privacy first, light weight, freandly user experience for macOS users.
