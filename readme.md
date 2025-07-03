@@ -1,4 +1,8 @@
 # Livcap
+![ChatGPT Image Jul 2, 2025, 04_00_49 PM](https://github.com/user-attachments/assets/06565003-ad8f-4724-a6a4-b951fb899f56)
+
+![1024-mac](https://github.com/user-attachments/assets/ff2bcde9-cf52-4f10-93f9-d281edafd52c)
+
 
 A live captioning app for macOS. 
 Privacy first, light weight, freandly user experience for macOS users.
