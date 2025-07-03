@@ -5,26 +5,77 @@
 # Livcap
 
 
-A live captioning app for macOS. 
-Privacy first, light weight, freandly user experience for macOS users.
-What happens on your device, stays on your device. 
+A live caption app for macOS. 
+>Privacy first, light weight, freandly user experience for macOS users.
+>What happens on your device, stays on your device. 
+
+
+[![App Store](https://img.shields.io/badge/App%20Store-Coming%20Soon-blue?style=for-the-badge&logo=apple&logoColor=white)](https://apps.apple.com)  [![macOS Version](https://img.shields.io/badge/macOS-15.0+-red?style=for-the-badge&logo=apple&logoColor=white)](https://www.apple.com/macos/) [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+
 
 ## Highlights:
-- Privacy first, local model, no cloud, no analytics, no ads. No need internet connection. Free and open source. 
+- Privacy first, local model, no cloud, no analytics, no ads, no need internet connection. 
+- No annoying user analytics. If you think something can be improved, submit an issue.
 - Light weight and fast. One click to on/off.
-- No annoying user analytics. If you think something can be improved, email me.
+- Performance concerned. 
+- Free and open source. 
 - Less is more. 
 
-## Performance Comparison:
+## Development Introduction
+
+### How good performance is Livcap? 
+
+
+**Livcap outperforms macOS's native Live Caption with significant improvements:**
+
+✅ **1.7x faster word-level lead rate**  
+✅ **10% lower latency**  
+✅ **More efficient processing with better resource utilization**
+
+> See detailed comparison benchmarks in [`livcapComparision.md`](livcapComparision.md)
+
+##### Technical Approach
+
+Our performance gains come from three key optimizations:
+
+🎯 **Single-pass inference** - Uses one SFSpeechRecognizer call instead of multiple inferences observed in native Live Caption
+
+⚡ **Smart downsampling** - Converts audio from 48kHz to 16kHz before processing, maintaining quality while reducing computational overhead
+
+🔇 **VAD-based silence skipping** - Voice Activity Detection prevents unnecessary processing during silent periods, saving resources and improving responsiveness 
+
+
+### Why is Livcap Privacy-First?
+
+**Complete local processing with zero external dependencies:**
+
+🔒 **No cloud services** - Built entirely on Apple's native SFSpeechRecognizer framework, ensuring all speech processing happens locally on your device
+
+🎵 **Direct audio access** - Uses CoreAudio Tap to capture system audio directly from the buffer, eliminating the need for ScreenCaptureKit or screen recording permissions
+
+🛡️ **Zero data transmission** - Your conversations never leave your Mac - no servers, no analytics, no tracking 
 
 
 
 
 
+# Development 
 
 
 
-# Development Introduction
+
+<details>
+<summary>Development History</summary>
+
+
+
+## History Highlight
+- Compare the whisper.cpp and built-in SFSpeechRecognizer. 
+- 3 Approaches audio arch: 
+  - VAD-Based Silence Detection
+  - 5-Second Fixed Sliding Windows  
+  - 30-Second WhisperLive-Inspired Buffer
+
 
 ## Permission issue:
 `tccutil reset All com.xxx.xx`
@@ -34,7 +85,8 @@ Based on SFSpeechRecognizer from the apple built-in framework.
 
 ## 3 Approaches Considerations History
 
-### Approach 1: VAD-Based Silence Detection ✅ **Most Reliable**
+<details>
+<summary>Approach 1: VAD-Based Silence Detection ✅ **Most Reliable**</summary>
 
 **Files:** `BufferManager.swift`, `VADProcessor.swift`, `EnhancedVAD.swift`
 
@@ -48,8 +100,10 @@ Based on SFSpeechRecognizer from the apple built-in framework.
 **Status:** ✅ Best balance of quality and usability
 
 **Limitations:** Variable latency, potential word cutoff, VAD tuning needed
+</details>
 
-### Approach 2: 5-Second Sliding Windows ❌ **Word-Level Chaos**
+<details>
+<summary>Approach 2: 5-Second Sliding Windows ❌ **Word-Level Chaos**</summary>
 
 **Files:** `ContinuousStreamManager.swift`, `TranscriptionStabilizationManager.swift`
 
@@ -63,8 +117,10 @@ Based on SFSpeechRecognizer from the apple built-in framework.
 **Status:** ❌ Overlap analysis creates transcription instability
 
 **Limitations:** Complex word matching, frequent text changes, poor readability
+</details>
 
-### Approach 3: 30-Second WhisperLive ❌ **High Latency**
+<details>
+<summary>Approach 3: 30-Second WhisperLive ❌ **High Latency**</summary>
 
 **Files:** `WhisperLiveContinuousManager.swift`, `WhisperLiveAudioBuffer.swift`
 
@@ -78,6 +134,7 @@ Based on SFSpeechRecognizer from the apple built-in framework.
 **Status:** ❌ >2s latency unsuitable for real-time
 
 **Limitations:** Excessive latency, high overhead, memory intensive
+</details>
 
 ## Current Conclusions
 
@@ -89,7 +146,8 @@ After extensive testing of all three approaches:
 
 3. **Approach 3 (30s WhisperLive)** provides excellent context but has unacceptable latency (>2s) for real-time applications.
 
-## Comparison Chart
+<details>
+<summary>Comparison Chart</summary>
 
 | Aspect | Approach 1: VAD-Based | Approach 2: 5s Sliding | Approach 3: 30s WhisperLive |
 |--------|----------------------|------------------------|---------------------------|
@@ -100,7 +158,10 @@ After extensive testing of all three approaches:
 | **Context** | Speech segments only | 5s windows | Maximum 30s context |
 | **Stabilization** | None | LocalAgreement | Pre-inference VAD |
 
-## Future Work
+</details>
+</details>
+
+# Future Work
 
 ### Isuse Solve: 
 `invalid display identifier 37D8832A-2D66-02CA-B9F7-8F30A301B230` when happend at the monitor changing. 
@@ -114,12 +175,6 @@ After extensive testing of all three approaches:
 - [ ] Investigate adaptive buffer sizing based on speech patterns
 - [ ] Optimize VAD parameters for different acoustic environments
 
-## History Highlight
-- Compare the whisper.cpp and built-in SFSpeechRecognizer. 
-- 3 Approaches audio arch: 
-  - VAD-Based Silence Detection
-  - 5-Second Fixed Sliding Windows  
-  - 30-Second WhisperLive-Inspired Buffer
 
 ## Technical Notes
 
