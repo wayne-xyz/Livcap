@@ -69,8 +69,7 @@ struct WindowControlButtons: View {
     // MARK: - Window Actions
     
     private func closeWindow() {
-        guard let window = NSApplication.shared.windows.first else { return }
-        window.close()
+        NSApplication.shared.terminate(nil)
     }
     
     private func minimizeWindow() {
