@@ -1,7 +1,8 @@
-# Livcap
-![ChatGPT Image Jul 2, 2025, 04_00_49 PM](https://github.com/user-attachments/assets/06565003-ad8f-4724-a6a4-b951fb899f56)
 
-![1024-mac](https://github.com/user-attachments/assets/ff2bcde9-cf52-4f10-93f9-d281edafd52c)
+![Frame 1](https://github.com/user-attachments/assets/2146ec4c-28a3-431e-89f8-7cf505e40066)
+
+
+# Livcap
 
 
 A live captioning app for macOS. 
@@ -16,14 +17,7 @@ What happens on your device, stays on your device.
 
 ## Performance Comparison:
 
-Livcap vs Built-in Live Caption:
-run simutanously: 
-words percentage faster: 
 
-one word latency comparison avg: 100ms
-
-
-run separately: 
 
 
 
