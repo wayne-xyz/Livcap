@@ -15,7 +15,7 @@ A live caption app for macOS.
 
 ## Highlights:
 - Privacy first, local model, no cloud, no analytics, no ads, no need internet connection. 
-- No annoying user analytics. If you think something can be improved, submit an issue.
+- No annoying user analytics.
 - Light weight and fast. One click to on/off.
 - Performance concerned. 
 - Free and open source. 
