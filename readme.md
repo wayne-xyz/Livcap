@@ -21,6 +21,21 @@ A live caption app for macOS.
 - Free and open source. 
 - Less is more. 
 
+
+
+
+
+https://github.com/user-attachments/assets/cbb2e8f6-a85c-4cce-ac33-6c737c29d9da
+
+
+
+
+https://github.com/user-attachments/assets/2c438390-cc63-4c1e-a630-d1eb66276eed
+
+
+
+
+
 ## Development Introduction
 
 ### How good performance is Livcap? 
