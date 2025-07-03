@@ -5,6 +5,7 @@
 //  Created by Rongwei Ji on 6/8/25.
 //
 import SwiftUI
+import AppKit
 
 
 struct CaptionView: View {
@@ -286,6 +287,22 @@ struct CaptionView: View {
         firstContentAnimationOpacity = 0
     }
     
+    // MARK: - Window Management Functions
+    
+    private func toggleWindowPinning() {
+        guard let window = NSApplication.shared.windows.first else { return }
+        
+        if isPinned {
+            // Pin window: Set to floating level to keep it on top
+            window.level = .floating
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        } else {
+            // Unpin window: Set to normal level
+            window.level = .normal
+            window.collectionBehavior = [.canJoinAllSpaces]
+        }
+    }
+    
     @ViewBuilder
     private func controlButtons() -> some View {
         HStack(spacing: 8) {
@@ -309,7 +326,7 @@ struct CaptionView: View {
                 isActive: isPinned,
                 action: {
                     isPinned.toggle()
-                    // Add window pinning logic here
+                    toggleWindowPinning()
                 }
             )
         }
