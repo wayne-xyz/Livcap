@@ -183,6 +183,16 @@ After extensive testing of all three approaches:
 </details>
 </details>
 
+# Contributing
+
+We welcome contributions! Please read our [Contributing Guidelines](CONTRIBUTION.md) before submitting PRs.
+
+**Key Requirements:**
+- Privacy first (no data collection/network features)
+- Lightweight performance (maintain efficiency) 
+- Simple UI design (minimal interface)
+- Follow PR template with motivation, code summary, AI assistance docs, and demo(optional)
+
 # Future Work
 
 ### Isuse Solve: 
