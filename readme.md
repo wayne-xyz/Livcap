@@ -10,7 +10,7 @@ A live caption app for macOS.
 >What happens on your device, stays on your device. 
 
 
-[![App Store](https://img.shields.io/badge/App%20Store-Coming%20Soon-blue?style=for-the-badge&logo=apple&logoColor=white)](https://apps.apple.com)  [![macOS Version](https://img.shields.io/badge/macOS-15.0+-red?style=for-the-badge&logo=apple&logoColor=white)](https://www.apple.com/macos/) [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![App Store](https://img.shields.io/badge/App%20Store-Available%20Now-blue?style=for-the-badge&logo=apple&logoColor=white)](https://apps.apple.com/us/app/livcap/id6748108138?mt=12)  [![macOS Version](https://img.shields.io/badge/macOS-15.0+-red?style=for-the-badge&logo=apple&logoColor=white)](https://www.apple.com/macos/) [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
 
 ## Highlights:
@@ -39,7 +39,9 @@ https://github.com/user-attachments/assets/2c438390-cc63-4c1e-a630-d1eb66276eed
 
 
 ## Released Notes
-v1 submit complete,  reviewing. 
+🎉 **v1.0 Now Available on the App Store!**
+
+[Download Livcap from the Mac App Store](https://apps.apple.com/us/app/livcap/id6748108138?mt=12) 
 
 
 
