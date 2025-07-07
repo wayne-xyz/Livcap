@@ -24,6 +24,10 @@ A live caption app for macOS.
 
 
 
+https://github.com/user-attachments/assets/2946aa64-c8ba-4af0-9569-295471312eeb
+
+
+
 
 
 https://github.com/user-attachments/assets/c24fd7d4-b4e5-4843-ab81-db704b5dee30
