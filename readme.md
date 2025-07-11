@@ -6,7 +6,7 @@
 
 
 A live caption app for macOS. 
->Privacy first, light weight, freandly user experience for macOS users.
+>Privacy first, light weight, friendly user experience for macOS users.
 >What happens on your device, stays on your device. 
 
 
