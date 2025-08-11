@@ -226,15 +226,3 @@ Livcap/CoreWhisperCpp/ggml-base.en-encoder.mlmodelc
 Livcap/CoreWhisperCpp/ggml-tiny.en-encoder.mlmodelc
 Livcap/CoreWhisperCpp/whisper.xcframework
 ```
-
-# Citation
-
-```
-@article{Whisper
-  title = {Robust Speech Recognition via Large-Scale Weak Supervision},
-  url = {https://arxiv.org/abs/2212.04356},
-  author = {Radford, Alec and Kim, Jong Wook and Xu, Tao and Brockman, Greg and McLeavey, Christine and Sutskever, Ilya},
-  publisher = {arXiv},
-  year = {2022},
-}
-```
