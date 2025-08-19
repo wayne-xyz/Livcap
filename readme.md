@@ -12,6 +12,8 @@ A live caption app for macOS.
 
 [![App Store](https://img.shields.io/badge/App%20Store-Available%20Now-blue?style=for-the-badge&logo=apple&logoColor=white)](https://apps.apple.com/us/app/livcap/id6748108138?mt=12)  [![macOS Version](https://img.shields.io/badge/macOS-15.0+-red?style=for-the-badge&logo=apple&logoColor=white)](https://www.apple.com/macos/) [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
+[<img width="156" height="40" alt="image" src="https://github.com/user-attachments/assets/60ab5719-729a-4f1f-9523-33c2c5b28b0d" />](https://apps.apple.com/us/app/livcap/id6748108138?mt=12)
+
 
 ## Highlights  
 
