@@ -13,13 +13,12 @@ A live caption app for macOS.
 [![App Store](https://img.shields.io/badge/App%20Store-Available%20Now-blue?style=for-the-badge&logo=apple&logoColor=white)](https://apps.apple.com/us/app/livcap/id6748108138?mt=12)  [![macOS Version](https://img.shields.io/badge/macOS-15.0+-red?style=for-the-badge&logo=apple&logoColor=white)](https://www.apple.com/macos/) [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
 
-## Highlights:
-- Privacy first, local model, no cloud, no analytics, no ads, no need internet connection. 
-- No annoying user analytics.
-- Light weight and fast. One click to on/off.
-- Performance concerned. 
-- Free and open source. 
-- Less is more. 
+## Highlights  
+
+- **Privacy First** – No cloud, no analytics, no ads, no internet required, and no screen capture access.  
+- **Lightweight & Fast** – Runs efficiently, with up to **1.7× faster word-level performance, 10% latency reduce** compared to default live caption.  
+- **Minimalist Design** – One-click on/off, no distractions. Less is more.  
+- **Open Source** – Free and transparent.  
 
 
 
