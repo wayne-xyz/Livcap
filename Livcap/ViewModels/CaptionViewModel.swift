@@ -14,8 +14,13 @@ import AVFoundation
 import Accelerate
 import os.log
 
+protocol CaptionViewModelProtocol: ObservableObject {
+    var captionHistory: [CaptionEntry] { get }
+    var currentTranscription: String { get }
+}
+
 /// CaptionViewModel for real-time speech recognition using SFSpeechRecognizer
-final class CaptionViewModel: ObservableObject {
+final class CaptionViewModel: ObservableObject, CaptionViewModelProtocol {
     
     // MARK: - Published Properties for UI
     

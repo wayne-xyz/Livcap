@@ -8,8 +8,8 @@
 
 import SwiftUI
 
-struct CaptionContentView: View {
-    @ObservedObject var captionViewModel: CaptionViewModel
+struct CaptionContentView<ViewModel: CaptionViewModelProtocol>: View {
+    @ObservedObject var captionViewModel: ViewModel
     @Binding var hasShownFirstContentAnimation: Bool
     @Binding var firstContentAnimationOffset: CGFloat
     @Binding var firstContentAnimationOpacity: Double
@@ -30,7 +30,7 @@ struct CaptionContentView: View {
                             .foregroundColor(.primary)
                             .lineSpacing(7)
                             .padding(.horizontal, 20)
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -49,7 +49,7 @@ struct CaptionContentView: View {
                             .font(.system(size: 22, weight: .medium, design: .rounded))
                             .foregroundColor(.primary)
                             .padding(.horizontal, 20)
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 1)
                             .lineSpacing(7)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .id("currentTranscription")
@@ -101,3 +101,42 @@ struct CaptionContentView: View {
         hasShownFirstContentAnimation = true
     }
 }
+
+// MARK: - Preview Support
+
+class MockCaptionViewModel: ObservableObject, CaptionViewModelProtocol {
+    @Published var captionHistory: [CaptionEntry] = [
+        CaptionEntry(text: "Welcome to Livcap, the real-time live captioning application for macOS.", confidence: 0.95),
+        CaptionEntry(text: "This app captures audio from your microphone and system audio sources.", confidence: 0.92),
+        CaptionEntry(text: "Speech recognition is powered by Apple's advanced Speech framework.", confidence: 0.88)
+    ]
+    
+    @Published var currentTranscription: String = "This is a sample of real-time transcription text as it appears during live captioning"
+}
+
+
+
+#Preview("Light Mode") {
+    CaptionContentView(
+        captionViewModel: MockCaptionViewModel(),
+        hasShownFirstContentAnimation: .constant(true),
+        firstContentAnimationOffset: .constant(0),
+        firstContentAnimationOpacity: .constant(1.0)
+    )
+    .frame(width: 600, height: 200)
+    .background(Color.gray.opacity(0.1))
+    .preferredColorScheme(.light)
+}
+
+#Preview("Dark Mode") {
+    CaptionContentView(
+        captionViewModel: MockCaptionViewModel(),
+        hasShownFirstContentAnimation: .constant(true),
+        firstContentAnimationOffset: .constant(0),
+        firstContentAnimationOpacity: .constant(1.0)
+    )
+    .frame(width: 600, height: 400)
+    .background(Color.gray.opacity(0.1))
+    .preferredColorScheme(.dark)
+}
+
