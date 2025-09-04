@@ -154,6 +154,8 @@ final class CaptionViewModel: ObservableObject, CaptionViewModelProtocol {
         speechProcessor.stopProcessing()
     }
     
+    // Removed: Stream restart handling no longer needed
+    
     // MARK: - Helper Functions
     
     private func updateStatus() {

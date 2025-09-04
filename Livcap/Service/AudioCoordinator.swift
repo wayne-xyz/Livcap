@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Combine
 import os.log
 
 final class AudioCoordinator: ObservableObject {
@@ -14,10 +15,12 @@ final class AudioCoordinator: ObservableObject {
     private let micAudioManager = MicAudioManager()
     private var systemAudioManager: SystemAudioManager?
     
-    
-    // Simplified stream management
-    private var activeAudioStreamTask: Task<Void, Never>?
-    
+    // Dynamic consumer management
+    private var microphoneConsumerTask: Task<Void, Never>?
+    private var systemAudioConsumerTask: Task<Void, Never>?
+
+    // Shared continuation for aggregator stream
+    private var streamContinuation: AsyncStream<AudioFrameWithVAD>.Continuation?
 
     // Logging
     private let logger = Logger(subsystem: "com.livcap.audio", category: "AudioCoordinator")
@@ -96,8 +99,7 @@ final class AudioCoordinator: ObservableObject {
             enableSystemAudio()
         }
     }
-    
-    // Removed: Complex state update logic replaced with direct control
+
 
     // MARK: - Microphone Control
     
@@ -110,6 +112,8 @@ final class AudioCoordinator: ObservableObject {
             await MainActor.run {
                 if micAudioManager.isRecording {
                     self.isMicrophoneEnabled = true
+                    // Create/replace consumer if aggregator is active
+                    self.createMicrophoneConsumer()
                     self.logger.info("✅ MICROPHONE SOURCE STARTED via MicAudioManager")
                 } else {
                     self.logger.error("❌ MicAudioManager failed to start recording")
@@ -121,6 +125,8 @@ final class AudioCoordinator: ObservableObject {
     private func stopMicrophone() {
         logger.info("🎤 STOPPING MICROPHONE SOURCE via MicAudioManager")
         
+        // Tear down consumer first
+        destroyMicrophoneConsumer()
         // Stop MicAudioManager
         micAudioManager.stop()
         isMicrophoneEnabled = false
@@ -149,6 +155,8 @@ final class AudioCoordinator: ObservableObject {
                 
                 await MainActor.run {
                     self.isSystemAudioEnabled = true
+                    // Create/replace consumer if aggregator is active
+                    self.createSystemAudioConsumer()
                     self.logger.info("✅ SYSTEM AUDIO SOURCE STARTED")
                 }
                 
@@ -164,60 +172,90 @@ final class AudioCoordinator: ObservableObject {
     private func stopSystemAudio() {
         logger.info("💻 STOPPING SYSTEM AUDIO SOURCE")
         
+        // Tear down consumer first
+        destroySystemAudioConsumer()
         systemAudioManager?.stopCapture()
         isSystemAudioEnabled = false
         
         logger.info("✅ SYSTEM AUDIO SOURCE STOPPED")
     }
     
-    // Removed: Complex dynamic consumer management
+    // MARK: - Dynamic Consumer Management
+    
+    private func createMicrophoneConsumer() {
+        // Cancel existing consumer if any
+        destroyMicrophoneConsumer()
+        
+        guard isMicrophoneEnabled else { return }
+        guard streamContinuation != nil else { return }
+        
+        logger.info("🎤 Creating microphone consumer")
+        microphoneConsumerTask = Task { [weak self] in
+            guard let self = self else { return }
+            let micStream = self.micAudioManager.audioFramesWithVAD()
+            for await micFrame in micStream {
+                if Task.isCancelled { break }
+                if self.shouldForwardFrame(micFrame, source: .microphone) {
+                    self.streamContinuation?.yield(micFrame)
+                }
+            }
+            self.logger.info("🎤 Microphone consumer ended")
+        }
+    }
+    
+    private func destroyMicrophoneConsumer() {
+        microphoneConsumerTask?.cancel()
+        microphoneConsumerTask = nil
+        logger.info("🎤 Microphone consumer destroyed")
+    }
+    
+    private func createSystemAudioConsumer() {
+        // Cancel existing consumer if any
+        destroySystemAudioConsumer()
+        
+        guard isSystemAudioEnabled else { return }
+        guard streamContinuation != nil else { return }
+        
+        guard #available(macOS 14.4, *), let systemAudioManager = systemAudioManager else { return }
+        
+        logger.info("💻 Creating system audio consumer")
+        systemAudioConsumerTask = Task { [weak self] in
+            guard let self = self else { return }
+            let systemStream = systemAudioManager.systemAudioStreamWithVAD()
+            for await systemFrame in systemStream {
+                if Task.isCancelled { break }
+                if self.shouldForwardFrame(systemFrame, source: .systemAudio) {
+                    self.streamContinuation?.yield(systemFrame)
+                }
+            }
+            self.logger.info("💻 System audio consumer ended")
+        }
+    }
+    
+    private func destroySystemAudioConsumer() {
+        systemAudioConsumerTask?.cancel()
+        systemAudioConsumerTask = nil
+        logger.info("💻 System audio consumer destroyed")
+    }
     
     // MARK: - Stream Coordination
     
     func audioFrameStream() -> AsyncStream<AudioFrameWithVAD> {
         AsyncStream { continuation in
+            // Store aggregator continuation
+            self.streamContinuation = continuation
+            self.logger.info("🔌 Aggregator stream created")
             
-            self.activeAudioStreamTask = Task {
-                await withTaskGroup(of: Void.self) { group in
-                    
-                    // Add microphone task if enabled
-                    if self.isMicrophoneEnabled {
-                        group.addTask {
-                            let micStream = self.micAudioManager.audioFramesWithVAD()
-                            for await micFrame in micStream {
-                                guard !Task.isCancelled else { break }
-                                
-                                if self.shouldForwardFrame(micFrame, source: .microphone) {
-                                    continuation.yield(micFrame)
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Add system audio task if enabled and available
-                    if self.isSystemAudioEnabled {
-                        if #available(macOS 14.4, *), let systemAudioManager = self.systemAudioManager {
-                            group.addTask {
-                                let systemStream = systemAudioManager.systemAudioStreamWithVAD()
-                                for await systemFrame in systemStream {
-                                    guard !Task.isCancelled else { break }
-                                    
-                                    if self.shouldForwardFrame(systemFrame, source: .systemAudio) {
-                                        continuation.yield(systemFrame)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Wait for all tasks
-                    await group.waitForAll()
-                }
-            }
+            // If sources are already active, create consumers now
+            if self.isMicrophoneEnabled { self.createMicrophoneConsumer() }
+            if self.isSystemAudioEnabled { self.createSystemAudioConsumer() }
             
             continuation.onTermination = { @Sendable [weak self] _ in
-                self?.activeAudioStreamTask?.cancel()
-                self?.logger.info("🛑 AudioCoordinator stream terminated.")
+                guard let self = self else { return }
+                self.destroyMicrophoneConsumer()
+                self.destroySystemAudioConsumer()
+                self.streamContinuation = nil
+                self.logger.info("🛑 Aggregator stream terminated")
             }
         }
     }
