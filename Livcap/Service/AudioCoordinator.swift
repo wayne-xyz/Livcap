@@ -278,11 +278,5 @@ final class AudioCoordinator: ObservableObject {
         }
     }
     
-    // MARK: - Debug Helper
-    
-    private func debugLog(_ message: String) {
-        #if DEBUG
-        logger.debug("\(message)")
-        #endif
-    }
+
 } 
