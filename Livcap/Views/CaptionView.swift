@@ -65,7 +65,7 @@ struct CaptionView: View {
         }
 
         .onDisappear {
-            // Stop audio sources when window closes
+            // Stop all audio sources when window closes
             if captionViewModel.isMicrophoneEnabled {
                 captionViewModel.toggleMicrophone()
             }

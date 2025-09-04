@@ -294,12 +294,10 @@ final class CoreAudioTapEngine {
                 return
             }
             
-            print("=============buffer rms before convert : \(calculateRMS(from: inputBuffer))")
             
             // Convert to target format if needed
             var processedBuffer = convertBufferFormat(inputBuffer, to: targetFormatCapture)
             
-            print("=============buffer rms after convert : \(calculateRMS(from: processedBuffer))")
             // Convert to mono
             if processedBuffer.format.channelCount==2 && targetFormatCapture.channelCount==1{
                 if let monoBuffer = convertToMono(from: processedBuffer, targetFormat: targetFormatCapture){

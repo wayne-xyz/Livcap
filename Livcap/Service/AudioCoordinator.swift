@@ -1,13 +1,12 @@
 import Foundation
 import AVFoundation
-import Combine
 import os.log
 
-final class AudioCoordinator {
+final class AudioCoordinator: ObservableObject {
     
-    // MARK: - Published Properties
-    @Published private(set) var isMicrophoneEnabled = false
-    @Published private(set) var isSystemAudioEnabled = false
+    // MARK: - Published Properties (Direct Boolean Control)
+    @Published private(set) var isMicrophoneEnabled: Bool = false
+    @Published private(set) var isSystemAudioEnabled: Bool = false
 
     // MARK: - Private Properties
     
@@ -15,8 +14,10 @@ final class AudioCoordinator {
     private let micAudioManager = MicAudioManager()
     private var systemAudioManager: SystemAudioManager?
     
-    // Audio source task (only one active at a time)
+    
+    // Simplified stream management
     private var activeAudioStreamTask: Task<Void, Never>?
+    
 
     // Logging
     private let logger = Logger(subsystem: "com.livcap.audio", category: "AudioCoordinator")
@@ -36,35 +37,67 @@ final class AudioCoordinator {
         }
     }
     
+    // Simplified: Direct control methods replace reactive consumers
+    
     // MARK: - Public Control Functions
-
+    
+    func enableMicrophone() {
+        guard !isMicrophoneEnabled else { 
+            logger.info("⚡ Microphone already enabled, skipping")
+            return 
+        }
+        
+        logger.info("🎤 Enabling microphone")
+        startMicrophone()
+    }
+    
+    func disableMicrophone() {
+        guard isMicrophoneEnabled else {
+            logger.info("⚡ Microphone already disabled, skipping")
+            return
+        }
+        
+        logger.info("🎤 Disabling microphone")
+        stopMicrophone()
+    }
+    
+    func enableSystemAudio() {
+        guard !isSystemAudioEnabled else {
+            logger.info("⚡ System audio already enabled, skipping")
+            return
+        }
+        
+        logger.info("💻 Enabling system audio")
+        startSystemAudio()
+    }
+    
+    func disableSystemAudio() {
+        guard isSystemAudioEnabled else {
+            logger.info("⚡ System audio already disabled, skipping")
+            return
+        }
+        
+        logger.info("💻 Disabling system audio")
+        stopSystemAudio()
+    }
+    
     func toggleMicrophone() {
-        logger.info("🎤 TOGGLE MICROPHONE: \(self.isMicrophoneEnabled) -> \(!self.isMicrophoneEnabled)")
-        
         if isMicrophoneEnabled {
-            stopMicrophone()
+            disableMicrophone()
         } else {
-            // Stop system audio first if it's running
-            if isSystemAudioEnabled {
-                stopSystemAudio()
-            }
-            startMicrophone()
+            enableMicrophone()
         }
     }
-
+    
     func toggleSystemAudio() {
-        logger.info("💻 TOGGLE SYSTEM AUDIO: \(self.isSystemAudioEnabled) -> \(!self.isSystemAudioEnabled)")
-        
         if isSystemAudioEnabled {
-            stopSystemAudio()
+            disableSystemAudio()
         } else {
-            // Stop microphone first if it's running
-            if isMicrophoneEnabled {
-                stopMicrophone()
-            }
-            startSystemAudio()
+            enableSystemAudio()
         }
     }
+    
+    // Removed: Complex state update logic replaced with direct control
 
     // MARK: - Microphone Control
     
@@ -88,8 +121,6 @@ final class AudioCoordinator {
     private func stopMicrophone() {
         logger.info("🎤 STOPPING MICROPHONE SOURCE via MicAudioManager")
         
-        guard isMicrophoneEnabled else { return }
-        
         // Stop MicAudioManager
         micAudioManager.stop()
         isMicrophoneEnabled = false
@@ -100,11 +131,6 @@ final class AudioCoordinator {
     // MARK: - System Audio Control
     
     private func startSystemAudio() {
-        guard !isSystemAudioEnabled else {
-            logger.info("💻 System audio already enabled")
-            return
-        }
-        
         guard #available(macOS 14.4, *) else {
             logger.warning("💻 System audio not supported on this macOS version")
             return
@@ -138,45 +164,54 @@ final class AudioCoordinator {
     private func stopSystemAudio() {
         logger.info("💻 STOPPING SYSTEM AUDIO SOURCE")
         
-        guard isSystemAudioEnabled else { return }
-        
         systemAudioManager?.stopCapture()
-        
         isSystemAudioEnabled = false
+        
         logger.info("✅ SYSTEM AUDIO SOURCE STOPPED")
     }
+    
+    // Removed: Complex dynamic consumer management
     
     // MARK: - Stream Coordination
     
     func audioFrameStream() -> AsyncStream<AudioFrameWithVAD> {
         AsyncStream { continuation in
             
-            // Create a task that switches between sources based on which is active
             self.activeAudioStreamTask = Task {
-                while !Task.isCancelled {
+                await withTaskGroup(of: Void.self) { group in
+                    
+                    // Add microphone task if enabled
                     if self.isMicrophoneEnabled {
-                        let micStream = self.micAudioManager.audioFramesWithVAD()
-                        for await frame in micStream {
-                            if Task.isCancelled { break }
-                            debugLog("Audio frame sending from the audioconductor: \(frame.vadResult)")
-                            continuation.yield(frame)
-                        }
-                    } else if self.isSystemAudioEnabled {
-                        if #available(macOS 14.4, *) {
-                            if let systemAudioManager = self.systemAudioManager {
-                                let systemStream = systemAudioManager.systemAudioStreamWithVAD()
-                                for await frame in systemStream {
-                                    if Task.isCancelled { break }
-                                    continuation.yield(frame)
+                        group.addTask {
+                            let micStream = self.micAudioManager.audioFramesWithVAD()
+                            for await micFrame in micStream {
+                                guard !Task.isCancelled else { break }
+                                
+                                if self.shouldForwardFrame(micFrame, source: .microphone) {
+                                    continuation.yield(micFrame)
                                 }
                             }
                         }
                     }
                     
-                    // Small delay before checking again if no source is active
-                    if !self.isMicrophoneEnabled && !self.isSystemAudioEnabled {
-                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    // Add system audio task if enabled and available
+                    if self.isSystemAudioEnabled {
+                        if #available(macOS 14.4, *), let systemAudioManager = self.systemAudioManager {
+                            group.addTask {
+                                let systemStream = systemAudioManager.systemAudioStreamWithVAD()
+                                for await systemFrame in systemStream {
+                                    guard !Task.isCancelled else { break }
+                                    
+                                    if self.shouldForwardFrame(systemFrame, source: .systemAudio) {
+                                        continuation.yield(systemFrame)
+                                    }
+                                }
+                            }
+                        }
                     }
+                    
+                    // Wait for all tasks
+                    await group.waitForAll()
                 }
             }
             
@@ -185,5 +220,31 @@ final class AudioCoordinator {
                 self?.logger.info("🛑 AudioCoordinator stream terminated.")
             }
         }
+    }
+    
+    // MARK: - Stream Router Logic
+    
+    private func shouldForwardFrame(_ frame: AudioFrameWithVAD, source: AudioSource) -> Bool {
+        switch source {
+        case .microphone:
+            // Only forward if microphone is enabled
+            guard isMicrophoneEnabled else { return false }
+            // In dual mode, use VAD; in single mode, forward all
+            return isSystemAudioEnabled ? frame.vadResult.isSpeech : true
+            
+        case .systemAudio:
+            // Only forward if system audio is enabled  
+            guard isSystemAudioEnabled else { return false }
+            // In dual mode, use VAD; in single mode, forward all
+            return isMicrophoneEnabled ? frame.vadResult.isSpeech : true
+        }
+    }
+    
+    // MARK: - Debug Helper
+    
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        logger.debug("\(message)")
+        #endif
     }
 } 
