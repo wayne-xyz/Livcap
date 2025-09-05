@@ -51,13 +51,16 @@ final class MicAudioManager: ObservableObject {
     // Structured processing task
     private var audioProcessingTask: Task<Void, Never>?
     
+    // Device monitoring
+    private let audioMonitor = AudioDeviceMonitor()
+    
     // Logging
     private let logger = Logger(subsystem: "com.livcap.microphone", category: "MicAudioManager")
 
     // MARK: - Initialization
     init() {
         self.audioEngine = AVAudioEngine()
-        logger.info("MicAudioManager initialized with SystemAudioManager pattern")
+
     }
     
     deinit {
@@ -272,6 +275,18 @@ final class MicAudioManager: ObservableObject {
         vadAudioStream = nil
         
         logger.info("✅ Streams and tasks cleaned")
+    }
+    
+    // MARK: - Device Monitoring Setup
+    
+    func setupAudioMonitoring() {
+        audioMonitor.onDeviceChanged { defaultInputName in
+            if let name = defaultInputName {
+                print("🎙️ Default input device changed to: \(name)")
+            } else {
+                print("🎙️ Audio route changed (iOS)")
+            }
+        }
     }
     
     // MARK: - Helpers and Utilities
