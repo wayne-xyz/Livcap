@@ -21,11 +21,7 @@ final class MicAudioManager: ObservableObject {
     
     // MARK: - Configuration
     private let targetSampleRate: Double = 16000.0
-    private var frameBufferSize: Int {
-        guard let inputNode = inputNode else { return 1600 }
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        return Int(recordingFormat.sampleRate * 0.1) // 100ms dynamically
-    }
+    // Removed: dynamic frameBufferSize; tap uses a fixed buffer size for stability
 
     // MARK: - Published Properties
     @Published private(set) var isRecording = false
@@ -397,33 +393,7 @@ final class MicAudioManager: ObservableObject {
         }
     }
     
-    private func convertBuffer(_ buffer: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer {
-        guard let converter = AVAudioConverter(from: buffer.format, to: format) else { 
-            logger.error("Failed to create audio converter")
-            return buffer 
-        }
-        
-        let outputFrameCapacity = AVAudioFrameCount((Double(buffer.frameLength) / buffer.format.sampleRate) * format.sampleRate)
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: outputFrameCapacity) else { 
-            logger.error("Failed to create output buffer")
-            return buffer 
-        }
-        
-        outputBuffer.frameLength = outputFrameCapacity
-
-        var error: NSError?
-        converter.convert(to: outputBuffer, error: &error) { inNumPackets, outStatus in
-            outStatus.pointee = .haveData
-            return buffer
-        }
-        
-        if let error = error {
-            logger.error("Buffer conversion error: \(error.localizedDescription)")
-            return buffer
-        }
-        
-        return outputBuffer
-    }
+    // Removed legacy per-call conversion; use convertWithProcessingContext instead
 
     private func convertWithProcessingContext(_ inputBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
         guard let context = processingContext else { return nil }
