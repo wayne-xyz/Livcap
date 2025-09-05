@@ -56,6 +56,13 @@ final class MicAudioManager: ObservableObject {
     private var isReconfiguring = false
     private var reconfigDebounceWorkItem: DispatchWorkItem?
     
+    // Processing context (reused converter and formats)
+    private struct ProcessingContext {
+        let targetFormat: AVAudioFormat
+        let converter: AVAudioConverter
+    }
+    private var processingContext: ProcessingContext?
+    
     // Logging
     private let logger = Logger(subsystem: "com.livcap.microphone", category: "MicAudioManager")
 
@@ -175,6 +182,19 @@ final class MicAudioManager: ObservableObject {
         let hwFormat = inputNode.outputFormat(forBus: 0)
         logger.info("📊 Microphone format: \(hwFormat.sampleRate)Hz, \(hwFormat.channelCount) channels")
 
+        // Build/rebuild processing context (reused converter)
+        if let target = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: targetSampleRate,
+            channels: 1,
+            interleaved: false
+        ), let converter = AVAudioConverter(from: hwFormat, to: target) {
+            processingContext = ProcessingContext(targetFormat: target, converter: converter)
+            logger.info("🔧 ProcessingContext created (\(Int(hwFormat.sampleRate))Hz → 16000Hz)")
+        } else {
+            logger.error("Failed to create ProcessingContext converter")
+        }
+
         logger.info("✅ Tap installed and engine started, installing processing task")
 
         // Start structured processing
@@ -201,18 +221,8 @@ final class MicAudioManager: ObservableObject {
     
     // SystemAudioManager Pattern: Buffer processing
     private func processMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) async {
-        // Convert to target format
-        guard let processingFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: targetSampleRate,
-            channels: 1,
-            interleaved: false
-        ) else {
-            logger.error("Failed to create processing format")
-            return
-        }
-        
-        let convertedBuffer = convertBuffer(buffer, to: processingFormat)
+        // Convert to target format using persistent converter
+        let convertedBuffer = convertWithProcessingContext(buffer) ?? buffer
         
         // VAD processing
         frameCounter += 1
@@ -226,7 +236,11 @@ final class MicAudioManager: ObservableObject {
             let normalizedEnergy = min(max(Double(vadResult.rmsEnergy) / 0.2, 0), 1) // 0.2 is a typical speech RMS, adjust as needed
             let barLength = max(3, Int(Double(maxBarLength) * normalizedEnergy))
             let bar = String(repeating: "=", count: barLength)
-            logger.info("Micphone RMS Energy: \(vadResult.rmsEnergy) [\(bar)]")
+            let now = Date()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss.SSS"
+            let timeString = formatter.string(from: now)
+            logger.info("Micphone RMS Energy: \(vadResult.rmsEnergy) [\(bar)] at \(timeString)")
         }
         
         // Create enhanced frame
@@ -291,6 +305,9 @@ final class MicAudioManager: ObservableObject {
         vadAudioStreamContinuation?.finish()
         vadAudioStreamContinuation = nil
         vadAudioStream = nil
+        
+        // Drop processing context
+        processingContext = nil
         
         logger.info("✅ Streams and tasks cleaned")
     }
@@ -406,6 +423,29 @@ final class MicAudioManager: ObservableObject {
         }
         
         return outputBuffer
+    }
+
+    private func convertWithProcessingContext(_ inputBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let context = processingContext else { return nil }
+        let srcRate = inputBuffer.format.sampleRate
+        let dstRate = context.targetFormat.sampleRate
+        let estimatedOutFrames = AVAudioFrameCount(max(1, Int((Double(inputBuffer.frameLength) / srcRate) * dstRate + 16)))
+        guard let outBuffer = AVAudioPCMBuffer(pcmFormat: context.targetFormat, frameCapacity: estimatedOutFrames) else {
+            logger.error("Failed to allocate output buffer for conversion")
+            return nil
+        }
+        outBuffer.frameLength = estimatedOutFrames
+
+        var error: NSError?
+        context.converter.convert(to: outBuffer, error: &error) { inNumPackets, outStatus in
+            outStatus.pointee = .haveData
+            return inputBuffer
+        }
+        if let error = error {
+            logger.error("Persistent converter error: \(error.localizedDescription)")
+            return nil
+        }
+        return outBuffer
     }
 }
 
