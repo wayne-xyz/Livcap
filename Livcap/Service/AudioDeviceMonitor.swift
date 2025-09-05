@@ -51,12 +51,8 @@ final class AudioDeviceMonitor {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        let devicesAddr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        propertyAddresses = [defaultInputAddr, devicesAddr]
+
+        propertyAddresses = [defaultInputAddr]
 
         let systemObjectID = AudioObjectID(kAudioObjectSystemObject)
 
