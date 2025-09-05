@@ -51,6 +51,7 @@ final class SpeechRecognitionManager: ObservableObject {
     private var speechEventsStream: AsyncStream<SpeechEvent>?
     
     // Logging
+    private var isLoggerOn: Bool = true // change to true for debugging
     private let logger = Logger(subsystem: "com.livcap.speech", category: "SpeechRecognitionManager")
     
     // MARK: - Initialization
@@ -212,9 +213,18 @@ final class SpeechRecognitionManager: ObservableObject {
         guard isRecording, let recognitionRequest = recognitionRequest else { return }
         recognitionRequest.append(buffer)
     }
-    
+
     func appendAudioBufferWithVAD(_ audioFrame: AudioFrameWithVAD) {
         guard isRecording, let recognitionRequest = recognitionRequest else { return }
+
+        // Log frame info before appending buffer
+        if isLoggerOn {
+            
+            let sourceString = audioFrame.source.rawValue.uppercased()
+            let vadValue = audioFrame.vadResult.rmsEnergy
+            let isSpeechString = audioFrame.isSpeech ? "SPEECH" : "SILENCE"
+            logger.info("(\(sourceString) Frame \(audioFrame.frameIndex) - VAD RMS: \(vadValue), State: \(isSpeechString)")
+        }
         recognitionRequest.append(audioFrame.buffer)
         
         // Frame-based silence detection

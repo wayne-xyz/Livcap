@@ -63,7 +63,7 @@ final class MicAudioManager: ObservableObject {
     private let logger = Logger(subsystem: "com.livcap.microphone", category: "MicAudioManager")
 
     // logger on/off switch
-    private var isLoggerOn: Bool = true
+    private var isLoggerOn: Bool = false //change to true for debugging
 
     // MARK: - Initialization
     init() {

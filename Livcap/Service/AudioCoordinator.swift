@@ -24,6 +24,14 @@ final class AudioCoordinator: ObservableObject {
 
     // Logging
     private let logger = Logger(subsystem: "com.livcap.audio", category: "AudioCoordinator")
+
+    // MARK: - Source Arbitration (when both sources are enabled)
+    private var activeSource: AudioSource?
+    private var activeSince: Date?
+    private var lastSpeechAtMic: Date?
+    private var lastSpeechAtSystem: Date?
+    private let minActiveWindow: TimeInterval = 2.0   // minimum time to stick with current source
+    private let silenceToSwitch: TimeInterval = 1.0   // if current source silent > 1s, allow switch
     
     // MARK: - Initialization
     
@@ -263,19 +271,71 @@ final class AudioCoordinator: ObservableObject {
     // MARK: - Stream Router Logic
     
     private func shouldForwardFrame(_ frame: AudioFrameWithVAD, source: AudioSource) -> Bool {
-        switch source {
-        case .microphone:
-            // Only forward if microphone is enabled
-            guard isMicrophoneEnabled else { return false }
-            // In dual mode, use VAD; in single mode, forward all
-            return isSystemAudioEnabled ? frame.vadResult.isSpeech : true
-            
-        case .systemAudio:
-            // Only forward if system audio is enabled  
-            guard isSystemAudioEnabled else { return false }
-            // In dual mode, use VAD; in single mode, forward all
-            return isMicrophoneEnabled ? frame.vadResult.isSpeech : true
+        // Fast returns if source disabled
+        if source == .microphone && !isMicrophoneEnabled { return false }
+        if source == .systemAudio && !isSystemAudioEnabled { return false }
+
+        // If only one source enabled, always forward it and mark active
+        if isMicrophoneEnabled && !isSystemAudioEnabled {
+            return source == .microphone
         }
+        if isSystemAudioEnabled && !isMicrophoneEnabled {
+            return source == .systemAudio
+        }
+
+        // From here, both sources are enabled → apply arbitration
+        // Update per-source last speech timestamps
+        let now = Date()
+        if frame.isSpeech {
+            if source == .microphone { lastSpeechAtMic = now } else { lastSpeechAtSystem = now }
+        }
+
+        // Both enabled: apply arbitration
+        // Initialize active if none and current frame is speech
+        if activeSource == nil {
+            if frame.isSpeech {
+                activeSource = source
+                activeSince = now
+                logger.info("🎚️ Selecting initial active source: \(source.rawValue)")
+                return true
+            } else {
+                // Wait for speech from either source
+                return false
+            }
+        }
+
+        guard let currentActive = activeSource, let since = activeSince else {
+            // Shouldn't happen, but be safe
+            activeSource = source
+            activeSince = now
+            return source == activeSource
+        }
+
+        // If this frame belongs to the active source, forward
+        if source == currentActive {
+            return true
+        }
+
+        // Consider switching to the other source
+        let timeOnActive = now.timeIntervalSince(since)
+        if timeOnActive < minActiveWindow {
+            // Respect minimum active window
+            return false
+        }
+
+        // Determine last speech time for the current active source
+        let lastSpeechActive: Date? = (currentActive == .microphone) ? lastSpeechAtMic : lastSpeechAtSystem
+        let silentDuration = lastSpeechActive.map { now.timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+
+        // Switch if active has been silent long enough and the other source is speaking now
+        if silentDuration >= silenceToSwitch && frame.isSpeech {
+            activeSource = source
+            activeSince = now
+            logger.info("🔀 Switching active source to: \(source.rawValue) after \(String(format: "%.1f", silentDuration))s silence on \(currentActive.rawValue)")
+            return true
+        }
+
+        return false
     }
     
 
