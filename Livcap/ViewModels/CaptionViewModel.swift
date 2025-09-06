@@ -14,17 +14,22 @@ import AVFoundation
 import Accelerate
 import os.log
 
+protocol CaptionViewModelProtocol: ObservableObject {
+    var captionHistory: [CaptionEntry] { get }
+    var currentTranscription: String { get }
+}
+
 /// CaptionViewModel for real-time speech recognition using SFSpeechRecognizer
-final class CaptionViewModel: ObservableObject {
+final class CaptionViewModel: ObservableObject, CaptionViewModelProtocol {
     
     // MARK: - Published Properties for UI
     
     @Published private(set) var isRecording = false
     @Published var statusText: String = "Ready to record"
     
-    // UI State mirrored from coordinators
-    @Published private(set) var isMicrophoneEnabled: Bool = false
-    @Published private(set) var isSystemAudioEnabled: Bool = false
+    // Direct boolean flags - simplified approach
+    var isMicrophoneEnabled: Bool { audioCoordinator.isMicrophoneEnabled }
+    var isSystemAudioEnabled: Bool { audioCoordinator.isSystemAudioEnabled }
 
     // Forwarded from SpeechProcessor
     var captionHistory: [CaptionEntry] { speechProcessor.captionHistory }
@@ -47,24 +52,13 @@ final class CaptionViewModel: ObservableObject {
         self.audioCoordinator = audioCoordinator
         self.speechProcessor = speechProcessor
         
-        // Subscribe to state changes from the AudioCoordinator
-        audioCoordinator.$isMicrophoneEnabled
+        // Subscribe to audio coordinator changes and manage recording state
+        audioCoordinator.objectWillChange
             .receive(on: DispatchQueue.main)
-            .assign(to: \.isMicrophoneEnabled, on: self)
-            .store(in: &cancellables)
-            
-        audioCoordinator.$isSystemAudioEnabled
-            .receive(on: DispatchQueue.main)
-            .assign(to: \.isSystemAudioEnabled, on: self)
-            .store(in: &cancellables)
-            
-        // REACTIVE STATE MANAGEMENT: Auto-manage recording state when audio sources change
-        audioCoordinator.$isMicrophoneEnabled
-            .combineLatest(audioCoordinator.$isSystemAudioEnabled)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] (micEnabled, systemEnabled) in
-                self?.manageRecordingState(micEnabled: micEnabled, systemEnabled: systemEnabled)
-                self?.updateStatus(micEnabled: micEnabled, systemEnabled: systemEnabled)
+            .sink { [weak self] _ in
+                self?.manageRecordingState()
+                self?.updateStatus()
+                self?.objectWillChange.send()
             }
             .store(in: &cancellables)
             
@@ -77,44 +71,48 @@ final class CaptionViewModel: ObservableObject {
             .store(in: &cancellables)
     }
     
-    // MARK: - Main control functions (Simplified: Let system handle permission requests)
+    // MARK: - Audio Control Methods
     
-    func toggleMicrophone() {
-        // If trying to enable microphone, check if permissions are denied
-        if !isMicrophoneEnabled {
-            // Check if essential permissions are denied
-            if permissionManager.hasEssentialPermissionsDenied() {
-                logger.warning("🚫 Microphone toggle cancelled - essential permissions denied")
-                
-                // Optionally open system settings or just show warning
-                if permissionManager.isMicrophoneDenied() {
-                    permissionManager.openSystemSettingsForMicPermission()
-                } else if permissionManager.isSpeechRecognitionDenied() {
-                    permissionManager.openSystemSettingsForSpeechPermission()
-                }
-                return
-            }
+    private func enableMicrophoneWithPermissionCheck() {
+        // Check permissions before enabling microphone
+        if permissionManager.hasEssentialPermissionsDenied() {
+            logger.warning("🚫 Microphone enable cancelled - essential permissions denied")
             
-            // If not denied, just try to enable - system will handle permission requests
-            logger.info("🎤 Enabling microphone - system will handle permissions if needed")
+            // Open system settings for denied permissions
+            if permissionManager.isMicrophoneDenied() {
+                permissionManager.openSystemSettingsForMicPermission()
+            } else if permissionManager.isSpeechRecognitionDenied() {
+                permissionManager.openSystemSettingsForSpeechPermission()
+            }
+            return
         }
         
-        // Toggle microphone (system handles permission requests automatically)
-        audioCoordinator.toggleMicrophone()
+        logger.info("🎤 Enabling microphone - permissions granted")
+        audioCoordinator.enableMicrophone()
+    }
+    
+    func toggleMicrophone() {
+        if isMicrophoneEnabled {
+            audioCoordinator.disableMicrophone()
+        } else {
+            enableMicrophoneWithPermissionCheck()
+        }
     }
     
     func toggleSystemAudio() {
-        // For system audio, just toggle directly
-        // System audio permission handling can be added later if needed
-        audioCoordinator.toggleSystemAudio()
+        if isSystemAudioEnabled {
+            audioCoordinator.disableSystemAudio()
+        } else {
+            audioCoordinator.enableSystemAudio()
+        }
     }
     
     // MARK: - Auto Speech Recognition Management
     
-    private func manageRecordingState(micEnabled: Bool, systemEnabled: Bool) {
-        let shouldBeRecording = micEnabled || systemEnabled
+    private func manageRecordingState() {
+        let shouldBeRecording = self.isMicrophoneEnabled || self.isSystemAudioEnabled
         
-        logger.info("🔄 REACTIVE STATE CHECK: mic=\(micEnabled), sys=\(systemEnabled), shouldRecord=\(shouldBeRecording), isRecording=\(self.isRecording)")
+        logger.info("🔄 REACTIVE STATE CHECK: mic=\(self.isMicrophoneEnabled), sys=\(self.isSystemAudioEnabled), shouldRecord=\(shouldBeRecording), isRecording=\(self.isRecording)")
         
         if shouldBeRecording && !isRecording {
             startRecording()
@@ -156,16 +154,24 @@ final class CaptionViewModel: ObservableObject {
         speechProcessor.stopProcessing()
     }
     
+    // Removed: Stream restart handling no longer needed
+    
     // MARK: - Helper Functions
     
-    private func updateStatus(micEnabled: Bool, systemEnabled: Bool) {
-        let micStatus = micEnabled ? "MIC:ON" : "MIC:OFF"
-        let systemStatus = systemEnabled ? "SYS:ON" : "SYS:OFF"
-        
+    private func updateStatus() {
         if !isRecording {
             self.statusText = "Ready"
         } else {
-            self.statusText = "\(micStatus) | \(systemStatus)"
+            switch (self.isMicrophoneEnabled, self.isSystemAudioEnabled) {
+            case (false, false):
+                self.statusText = "Ready"
+            case (true, false):
+                self.statusText = "MIC:ON"
+            case (false, true):
+                self.statusText = "SYS:ON"
+            case (true, true):
+                self.statusText = "MIC:ON | SYS:ON"
+            }
         }
         logger.info("📊 STATUS UPDATE: \(self.statusText)")
     }

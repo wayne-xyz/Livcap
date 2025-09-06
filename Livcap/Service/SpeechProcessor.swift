@@ -92,11 +92,6 @@ final class SpeechProcessor: ObservableObject {
         // Detect speech state transitions
         if isSpeech != currentSpeechState {
             Task { @MainActor in
-                if isSpeech {
-                    self.logger.info("🗣️ \(audioFrame.source.rawValue.uppercased()) SPEECH START detected")
-                } else {
-                    self.logger.info("🤫 \(audioFrame.source.rawValue.uppercased()) SPEECH END detected")
-                }
                 self.currentSpeechState = isSpeech
             }
         }

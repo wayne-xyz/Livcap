@@ -21,11 +21,7 @@ final class MicAudioManager: ObservableObject {
     
     // MARK: - Configuration
     private let targetSampleRate: Double = 16000.0
-    private var frameBufferSize: Int {
-        guard let inputNode = inputNode else { return 1600 }
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        return Int(recordingFormat.sampleRate * 0.1) // 100ms dynamically
-    }
+    // Removed: dynamic frameBufferSize; tap uses a fixed buffer size for stability
 
     // MARK: - Published Properties
     @Published private(set) var isRecording = false
@@ -51,13 +47,28 @@ final class MicAudioManager: ObservableObject {
     // Structured processing task
     private var audioProcessingTask: Task<Void, Never>?
     
+    // Device monitoring
+    private let audioMonitor = AudioDeviceMonitor()
+    private var isReconfiguring = false
+    private var reconfigDebounceWorkItem: DispatchWorkItem?
+    
+    // Processing context (reused converter and formats)
+    private struct ProcessingContext {
+        let targetFormat: AVAudioFormat
+        let converter: AVAudioConverter
+    }
+    private var processingContext: ProcessingContext?
+    
     // Logging
     private let logger = Logger(subsystem: "com.livcap.microphone", category: "MicAudioManager")
+
+    // logger on/off switch
+    private var isLoggerOn: Bool = false //change to true for debugging
 
     // MARK: - Initialization
     init() {
         self.audioEngine = AVAudioEngine()
-        logger.info("MicAudioManager initialized with SystemAudioManager pattern")
+        setupDeviceMonitoring()
     }
     
     deinit {
@@ -115,11 +126,6 @@ final class MicAudioManager: ObservableObject {
         // ✅ Clean up first WITHOUT changing isRecording
         cleanupStreamsAndTasks()
         
-        guard inputNode != nil else {
-            logger.error("Failed to get audio input node.")
-            return
-        }
-        
         logger.info("🔴 STARTING MICROPHONE CAPTURE")
         
         do {
@@ -136,13 +142,14 @@ final class MicAudioManager: ObservableObject {
     
     // ✅ Setup without calling cleanup() that changes state
     private func setupMicrophoneCapture() throws {
-        guard let inputNode = inputNode else {
-            throw AudioError.formatCreationFailure
-        }
-        
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        logger.info("📊 Microphone format: \(recordingFormat.sampleRate)Hz, \(recordingFormat.channelCount) channels")
-        
+        // Ensure we have a fresh engine
+        if audioEngine == nil { audioEngine = AVAudioEngine() }
+        guard let engine = audioEngine else { throw AudioError.formatCreationFailure }
+
+        // Force-create I/O nodes in the graph
+        let inputNode = engine.inputNode
+        _ = engine.outputNode
+
         // Create internal raw audio stream (like SystemAudioManager)
         let rawStream = AsyncStream<AVAudioPCMBuffer> { continuation in
             self.rawAudioStreamContinuation = continuation
@@ -151,22 +158,41 @@ final class MicAudioManager: ObservableObject {
             }
         }
         self.rawAudioStream = rawStream
-        
-        // Install ultra-fast audio tap
+
+        // Install tap BEFORE starting the engine; use node's native format (nil)
+        inputNode.removeTap(onBus: 0)
+        let bufferFrames: AVAudioFrameCount = 2048 // stable across devices
         inputNode.installTap(
             onBus: 0,
-            bufferSize: AVAudioFrameCount(frameBufferSize),
-            format: recordingFormat
+            bufferSize: bufferFrames,
+            format: nil
         ) { [weak self] buffer, time in
-            // ✅ ULTRA-FAST: Just yield to internal stream
             self?.rawAudioStreamContinuation?.yield(buffer)
         }
 
-        audioEngine?.prepare()
-        try audioEngine?.start()
-        
-        logger.info("✅ Audio engine started, installing processing task")
-        
+        // Prepare and start engine now that graph is complete
+        engine.prepare()
+        try engine.start()
+
+        // Log final hardware format
+        let hwFormat = inputNode.outputFormat(forBus: 0)
+        logger.info("📊 Microphone format: \(hwFormat.sampleRate)Hz, \(hwFormat.channelCount) channels")
+
+        // Build/rebuild processing context (reused converter)
+        if let target = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: targetSampleRate,
+            channels: 1,
+            interleaved: false
+        ), let converter = AVAudioConverter(from: hwFormat, to: target) {
+            processingContext = ProcessingContext(targetFormat: target, converter: converter)
+            logger.info("🔧 ProcessingContext created (\(Int(hwFormat.sampleRate))Hz → 16000Hz)")
+        } else {
+            logger.error("Failed to create ProcessingContext converter")
+        }
+
+        logger.info("✅ Tap installed and engine started, installing processing task")
+
         // Start structured processing
         processMicrophoneOutput(audioStream: rawStream)
     }
@@ -191,22 +217,27 @@ final class MicAudioManager: ObservableObject {
     
     // SystemAudioManager Pattern: Buffer processing
     private func processMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) async {
-        // Convert to target format
-        guard let processingFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: targetSampleRate,
-            channels: 1,
-            interleaved: false
-        ) else {
-            logger.error("Failed to create processing format")
-            return
-        }
-        
-        let convertedBuffer = convertBuffer(buffer, to: processingFormat)
+        // Convert to target format using persistent converter
+        let convertedBuffer = convertWithProcessingContext(buffer) ?? buffer
         
         // VAD processing
         frameCounter += 1
         let vadResult = vadProcessor.processAudioBuffer(convertedBuffer)
+        
+        
+        // Visualize RMS energy as a bar: longer bar = higher energy
+        if isLoggerOn {
+
+            let maxBarLength = 30
+            let normalizedEnergy = min(max(Double(vadResult.rmsEnergy) / 0.2, 0), 1) // 0.2 is a typical speech RMS, adjust as needed
+            let barLength = max(3, Int(Double(maxBarLength) * normalizedEnergy))
+            let bar = String(repeating: "=", count: barLength)
+            let now = Date()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss.SSS"
+            let timeString = formatter.string(from: now)
+            logger.info("Micphone RMS Energy: \(vadResult.rmsEnergy) [\(bar)] at \(timeString)")
+        }
         
         // Create enhanced frame
         let audioFrame = AudioFrameWithVAD(
@@ -231,9 +262,9 @@ final class MicAudioManager: ObservableObject {
     private func forceCleanup() {
         logger.info("🛑 FORCE CLEANUP MICROPHONE")
         
-        // 1️⃣ Stop audio hardware first
+        // 1️⃣ Always remove tap, then stop audio hardware
+        inputNode?.removeTap(onBus: 0)
         if let engine = audioEngine, engine.isRunning {
-            inputNode?.removeTap(onBus: 0)
             engine.stop()
             logger.info("🛑 Audio engine stopped")
         }
@@ -271,7 +302,80 @@ final class MicAudioManager: ObservableObject {
         vadAudioStreamContinuation = nil
         vadAudioStream = nil
         
+        // Drop processing context
+        processingContext = nil
+        
         logger.info("✅ Streams and tasks cleaned")
+    }
+    
+    // MARK: - Device Monitoring Setup
+    
+    private func setupDeviceMonitoring() {
+        audioMonitor.onDeviceChanged { [weak self] defaultInputName in
+            guard let self else { return }
+            let name = defaultInputName ?? "unknown"
+            self.logger.info("🔄 Default input changed to: \(name)")
+            self.scheduleReconfigureAfterDeviceChange()
+        }
+    }
+
+    private func scheduleReconfigureAfterDeviceChange() {
+        // Debounce reconfig to coalesce change storms
+        reconfigDebounceWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                self?.performReconfigureForDeviceChange()
+            }
+        }
+        reconfigDebounceWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
+    }
+
+    @MainActor
+    private func performReconfigureForDeviceChange() {
+        guard isRecording else {
+            logger.info("🔇 Ignoring device change because not recording")
+            return
+        }
+        guard !isReconfiguring else {
+            logger.info("⏳ Reconfigure already in progress")
+            return
+        }
+        isReconfiguring = true
+        logger.info("🛠️ Reconfiguring microphone after device change")
+
+        // 1) Stop audio engine quickly (remove tap first)
+        inputNode?.removeTap(onBus: 0)
+        if let engine = audioEngine, engine.isRunning {
+            engine.stop()
+            logger.info("🛑 Engine stopped for reconfigure")
+        }
+
+        // 2) Cancel task and raw stream but keep VAD output alive
+        audioProcessingTask?.cancel()
+        audioProcessingTask = nil
+        rawAudioStreamContinuation?.finish()
+        rawAudioStreamContinuation = nil
+        rawAudioStream = nil
+        // Keep vadAudioStreamContinuation to preserve downstream consumers
+        vadProcessor.reset()
+        frameCounter = 0
+
+        // 3) Recreate engine for a clean bind to the new device
+        audioEngine = AVAudioEngine()
+
+        // 4) Start capture again after a short stabilization delay
+        let delay: TimeInterval = 0.35
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            do {
+                try self.setupMicrophoneCapture()
+                self.logger.info("✅ Reconfigure completed; capture restarted")
+            } catch {
+                self.logger.error("❌ Reconfigure failed: \(error.localizedDescription)")
+            }
+            self.isReconfiguring = false
+        }
     }
     
     // MARK: - Helpers and Utilities
@@ -289,32 +393,29 @@ final class MicAudioManager: ObservableObject {
         }
     }
     
-    private func convertBuffer(_ buffer: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer {
-        guard let converter = AVAudioConverter(from: buffer.format, to: format) else { 
-            logger.error("Failed to create audio converter")
-            return buffer 
+    // Removed legacy per-call conversion; use convertWithProcessingContext instead
+
+    private func convertWithProcessingContext(_ inputBuffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let context = processingContext else { return nil }
+        let srcRate = inputBuffer.format.sampleRate
+        let dstRate = context.targetFormat.sampleRate
+        let estimatedOutFrames = AVAudioFrameCount(max(1, Int((Double(inputBuffer.frameLength) / srcRate) * dstRate + 16)))
+        guard let outBuffer = AVAudioPCMBuffer(pcmFormat: context.targetFormat, frameCapacity: estimatedOutFrames) else {
+            logger.error("Failed to allocate output buffer for conversion")
+            return nil
         }
-        
-        let outputFrameCapacity = AVAudioFrameCount((Double(buffer.frameLength) / buffer.format.sampleRate) * format.sampleRate)
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: outputFrameCapacity) else { 
-            logger.error("Failed to create output buffer")
-            return buffer 
-        }
-        
-        outputBuffer.frameLength = outputFrameCapacity
+        outBuffer.frameLength = estimatedOutFrames
 
         var error: NSError?
-        converter.convert(to: outputBuffer, error: &error) { inNumPackets, outStatus in
+        context.converter.convert(to: outBuffer, error: &error) { inNumPackets, outStatus in
             outStatus.pointee = .haveData
-            return buffer
+            return inputBuffer
         }
-        
         if let error = error {
-            logger.error("Buffer conversion error: \(error.localizedDescription)")
-            return buffer
+            logger.error("Persistent converter error: \(error.localizedDescription)")
+            return nil
         }
-        
-        return outputBuffer
+        return outBuffer
     }
 }
 
