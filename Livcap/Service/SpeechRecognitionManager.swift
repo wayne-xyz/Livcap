@@ -53,6 +53,11 @@ final class SpeechRecognitionManager: ObservableObject {
     // Logging
     private var isLoggerOn: Bool = false // change to true for debugging
     private let logger = Logger(subsystem: "com.livcap.speech", category: "SpeechRecognitionManager")
+
+    // Session rotation
+    private var sessionStartTime: Date?
+    private var sessionRotationTask: Task<Void, Never>?
+    private let maxTaskDuration: TimeInterval = 300 // seconds (5 minutes)
     
     // MARK: - Initialization
     
@@ -134,33 +139,9 @@ final class SpeechRecognitionManager: ObservableObject {
         recognitionTask?.cancel()
         recognitionTask = nil
         
-        // Create recognition request
-        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let recognitionRequest = recognitionRequest else {
-            let error = SpeechRecognitionError.requestCreationFailed
-            await updateStatus("Failed to create recognition request")
-            speechEventsContinuation?.yield(.error(error))
-            throw error
-        }
-        
-        recognitionRequest.shouldReportPartialResults = true
-        
-        // Start recognition task
-        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            guard let self = self else { return }
-            
-            Task {
-                if let error = error {
-                    await self.updateStatus("Recognition error: \(error.localizedDescription)")
-                    self.speechEventsContinuation?.yield(.error(error))
-                    return
-                }
-                
-                if let result = result {
-                    let transcription = result.bestTranscription.formattedString
-                    await self.processTranscriptionResult(transcription)
-                }
-            }
+        // Create initial recognition session
+        try await MainActor.run {
+            self.startNewSession()
         }
         
         await MainActor.run {
@@ -173,6 +154,9 @@ final class SpeechRecognitionManager: ObservableObject {
         fullTranscriptionText = ""
         currentSpeechState = false
         consecutiveSilenceFrames = 0
+        
+        // Start session rotation watchdog
+        startRotationWatchdog()
         
         logger.info("✅ SPEECH RECOGNITION ENGINE STARTED")
     }
@@ -189,6 +173,11 @@ final class SpeechRecognitionManager: ObservableObject {
         // End recognition request
         recognitionRequest?.endAudio()
         recognitionRequest = nil
+        
+        // Stop rotation timer
+        sessionRotationTask?.cancel()
+        sessionRotationTask = nil
+        sessionStartTime = nil
         
         Task { @MainActor in
             self.isRecording = false
@@ -282,6 +271,71 @@ final class SpeechRecognitionManager: ObservableObject {
         }
     }
     
+    // MARK: - Session Management (Concise)
+    
+    @MainActor
+    private func startNewSession() {
+        guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
+            logger.error("❌ Cannot start session: recognizer unavailable")
+            return
+        }
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        recognitionRequest = request
+        recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self = self else { return }
+            Task {
+                if let error = error {
+                    await self.updateStatus("Recognition error: \(error.localizedDescription)")
+                    self.speechEventsContinuation?.yield(.error(error))
+                    return
+                }
+                if let result = result {
+                    let transcription = result.bestTranscription.formattedString
+                    await self.processTranscriptionResult(transcription)
+                }
+            }
+        }
+        sessionStartTime = Date()
+        logger.info("♻️ Session started")
+    }
+    
+    @MainActor
+    private func stopCurrentSession() {
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+        sessionStartTime = nil
+    }
+    
+    private func rotateSession(reason: String, finalizeCurrent: Bool) {
+        Task { @MainActor in
+            guard self.isRecording else { return }
+            self.logger.info("♻️ Rotate session (reason=\(reason))")
+            if finalizeCurrent { self.finalizeSentence() }
+            self.stopCurrentSession()
+            self.processedTextLength = 0
+            self.fullTranscriptionText = ""
+            self.currentTranscription = ""
+            self.startNewSession()
+        }
+    }
+    
+    private func startRotationWatchdog() {
+        sessionRotationTask?.cancel()
+        sessionRotationTask = Task { [weak self] in
+            let checkIntervalNs: UInt64 = 5_000_000_000
+            while let self = self, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: checkIntervalNs)
+                guard self.isRecording, let start = self.sessionStartTime else { continue }
+                if Date().timeIntervalSince(start) >= self.maxTaskDuration {
+                    self.rotateSession(reason: "max-duration", finalizeCurrent: false)
+                }
+            }
+        }
+    }
+
     private func extractNewTranscriptionPart(from fullText: String) -> String {
         // Extract only the part that hasn't been processed yet
         if fullText.count > processedTextLength {
@@ -308,6 +362,9 @@ final class SpeechRecognitionManager: ObservableObject {
             
             // Clear current transcription for next sentence
             currentTranscription = ""
+            
+            // Rotate session after a silence-based finalization to bound internal state
+            rotateSession(reason: "silence-window", finalizeCurrent: false)
         }
     }
     
