@@ -51,7 +51,7 @@ final class SpeechRecognitionManager: ObservableObject {
     private var speechEventsStream: AsyncStream<SpeechEvent>?
     
     // Logging
-    private var isLoggerOn: Bool = true // change to true for debugging
+    private var isLoggerOn: Bool = false // change to true for debugging
     private let logger = Logger(subsystem: "com.livcap.speech", category: "SpeechRecognitionManager")
     
     // MARK: - Initialization
