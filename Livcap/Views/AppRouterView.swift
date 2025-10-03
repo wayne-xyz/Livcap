@@ -129,7 +129,7 @@ struct AppRouterView: View {
         // Set the window's content view to have rounded corners
         if let contentView = window.contentView {
             contentView.wantsLayer = true
-            contentView.layer?.cornerRadius = 8
+            contentView.layer?.cornerRadius = 26
             contentView.layer?.masksToBounds = true
         }
     }
